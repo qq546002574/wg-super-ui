@@ -426,6 +426,48 @@
           <i class="fas fa-project-diagram"></i>
         </button>
 
+        <!-- 添加导出按钮 -->
+        <div class="export-picker">
+          <button 
+            @click="toggleExportOptions" 
+            title="导出"
+          >
+            <i class="fas fa-file-export"></i>
+          </button>
+          <!-- 导出选项菜单 -->
+          <div v-if="showExportOptions" class="export-menu">
+            <button
+              @click="exportAsHTML"
+              class="export-item"
+              title="导出为HTML"
+            >
+              <i class="fas fa-file-code"></i> HTML
+            </button>
+            <button
+              @click="exportAsText"
+              class="export-item"
+              title="导出为纯文本"
+            >
+              <i class="fas fa-file-alt"></i> 纯文本
+            </button>
+            <button
+              @click="exportAsPDF"
+              class="export-item"
+              title="导出为PDF"
+            >
+              <i class="fas fa-file-pdf"></i> PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- 添加打印按钮 -->
+        <button 
+          @click="printContent" 
+          title="打印"
+        >
+          <i class="fas fa-print"></i>
+        </button>
+
         <!-- 添加保存按钮 -->
         <button
           v-if="enableAutoSave"
@@ -628,6 +670,7 @@ export default {
       dialogImageUrl: '',
       flowcharts: [], // 存储多个流程图数据
       currentContent: null,
+      showExportOptions: false, // 控制导出选项菜单的显示
     };
   },
 
@@ -962,6 +1005,7 @@ export default {
       const cellBgColorPicker = this.$el.querySelector(".cell-bg-color-picker");
       const tablePicker = this.$el.querySelector(".table-picker");
       const headingPicker = this.$el.querySelector('.heading-picker');
+      const exportPicker = this.$el.querySelector('.export-picker');
 
       if (textColorPicker && !textColorPicker.contains(event.target)) {
         this.showColorPicker = false;
@@ -978,6 +1022,314 @@ export default {
       if (headingPicker && !headingPicker.contains(event.target)) {
         this.showHeadingPicker = false;
       }
+
+      if (exportPicker && !exportPicker.contains(event.target)) {
+        this.showExportOptions = false;
+      }
+    },
+
+    // 导出相关方法
+    toggleExportOptions() {
+      this.showExportOptions = !this.showExportOptions;
+      if (this.showExportOptions) {
+        this.updatePickerPosition('export-picker');
+      }
+    },
+
+    // 导出为HTML
+    exportAsHTML() {
+      if (!this.editor) return;
+      
+      const content = this.editor.getHTML();
+      const fileName = `document_${new Date().toISOString().slice(0, 10)}.html`;
+      
+      // 创建完整的HTML文档
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${fileName}</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 1em;
+    }
+    table, th, td {
+      border: 1px solid #ddd;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    blockquote {
+      border-left: 3px solid #ddd;
+      margin-left: 0;
+      padding-left: 10px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  ${content}
+</body>
+</html>
+      `;
+      
+      this.downloadFile(htmlContent, fileName, 'text/html');
+      this.showExportOptions = false;
+      this.showSaveMessage("HTML导出成功", "success");
+    },
+    
+    // 导出为纯文本
+    exportAsText() {
+      if (!this.editor) return;
+      
+      const content = this.editor.getText();
+      const fileName = `document_${new Date().toISOString().slice(0, 10)}.txt`;
+      
+      this.downloadFile(content, fileName, 'text/plain');
+      this.showExportOptions = false;
+      this.showSaveMessage("文本导出成功", "success");
+    },
+    
+    // 导出为PDF
+    exportAsPDF() {
+      if (!this.editor) return;
+      
+      // 创建一个隐藏的iframe用于打印
+      const printIframe = document.createElement('iframe');
+      printIframe.style.position = 'absolute';
+      printIframe.style.top = '-9999px';
+      printIframe.style.left = '-9999px';
+      document.body.appendChild(printIframe);
+      
+      // 获取编辑器内容
+      const content = this.editor.getHTML();
+      
+      // 设置iframe内容
+      const iframeDocument = printIframe.contentDocument || printIframe.contentWindow.document;
+      iframeDocument.open();
+      iframeDocument.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>PDF导出</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              margin-bottom: 1em;
+            }
+            table, th, td {
+              border: 1px solid #ddd;
+            }
+            th, td {
+              padding: 8px;
+              text-align: left;
+            }
+            img {
+              max-width: 100%;
+              height: auto;
+            }
+            pre {
+              background-color: #f5f5f5;
+              padding: 10px;
+              border-radius: 4px;
+              overflow-x: auto;
+            }
+            blockquote {
+              border-left: 3px solid #ddd;
+              margin-left: 0;
+              padding-left: 10px;
+              color: #666;
+            }
+            @media print {
+              body {
+                padding: 0;
+                margin: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          ${content}
+        </body>
+        </html>
+      `);
+      iframeDocument.close();
+      
+      // 等待iframe加载完成
+      printIframe.onload = () => {
+        try {
+          // 调用打印，但设置为保存PDF
+          printIframe.contentWindow.print();
+          
+          // 显示成功消息
+          this.showSaveMessage("PDF导出成功", "success");
+          
+          // 延迟移除iframe
+          setTimeout(() => {
+            document.body.removeChild(printIframe);
+          }, 1000);
+        } catch (error) {
+          console.error('PDF导出失败:', error);
+          this.showSaveMessage("PDF导出失败，请重试", "error");
+          document.body.removeChild(printIframe);
+        }
+      };
+      
+      this.showExportOptions = false;
+    },
+    
+    // 打印内容
+    printContent() {
+      if (!this.editor) return;
+      
+      // 创建一个隐藏的iframe用于打印
+      const printIframe = document.createElement('iframe');
+      printIframe.style.position = 'absolute';
+      printIframe.style.top = '-9999px';
+      printIframe.style.left = '-9999px';
+      document.body.appendChild(printIframe);
+      
+      // 获取编辑器内容
+      const content = this.editor.getHTML();
+      
+      // 设置iframe内容
+      const iframeDocument = printIframe.contentDocument || printIframe.contentWindow.document;
+      iframeDocument.open();
+      iframeDocument.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>打印文档</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              margin-bottom: 1em;
+            }
+            table, th, td {
+              border: 1px solid #ddd;
+            }
+            th, td {
+              padding: 8px;
+              text-align: left;
+            }
+            img {
+              max-width: 100%;
+              height: auto;
+            }
+            pre {
+              background-color: #f5f5f5;
+              padding: 10px;
+              border-radius: 4px;
+              overflow-x: auto;
+            }
+            blockquote {
+              border-left: 3px solid #ddd;
+              margin-left: 0;
+              padding-left: 10px;
+              color: #666;
+            }
+            @media print {
+              body {
+                padding: 0;
+                margin: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          ${content}
+        </body>
+        </html>
+      `);
+      iframeDocument.close();
+      
+      // 等待iframe加载完成
+      printIframe.onload = () => {
+        try {
+          // 调用打印
+          printIframe.contentWindow.print();
+          
+          // 延迟移除iframe
+          setTimeout(() => {
+            document.body.removeChild(printIframe);
+          }, 1000);
+        } catch (error) {
+          console.error('打印失败:', error);
+          document.body.removeChild(printIframe);
+        }
+      };
+    },
+    
+    // 下载文件的通用方法
+    downloadFile(content, fileName, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.style.display = 'none';
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 100);
+    },
+    
+    // 显示保存消息
+    showSaveMessage(text, type = 'success') {
+      this.saveMessage = { text, type };
+      
+      // 3秒后自动隐藏消息
+      setTimeout(() => {
+        this.saveMessage = null;
+      }, 3000);
     },
     // 优化后的保存方法
     async saveContent() {
