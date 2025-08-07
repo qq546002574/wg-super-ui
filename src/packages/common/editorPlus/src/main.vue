@@ -548,6 +548,7 @@ import { Editor, EditorContent } from "@tiptap/vue-2";
 import debounce from "lodash/debounce";
 import drawioEmbed from 'drawio-embed';
 import PdfExportService from './pdf-export-service';
+import DocxExportService from './docx-export-service';
 
 import {  UploadContainer  } from './customNode';
 export default {
@@ -701,6 +702,7 @@ export default {
       currentContent: null,
       showExportOptions: false, // 控制导出选项菜单的显示
       pdfExportService: null, // PDF导出服务实例
+      docxExportService: null, // DOCX导出服务实例
     };
   },
 
@@ -712,6 +714,8 @@ export default {
     this.initAutoSave();
     // 初始化PDF导出服务
     this.pdfExportService = new PdfExportService();
+    // 初始化DOCX导出服务
+    this.docxExportService = new DocxExportService();
   },
 
   mounted() {
@@ -1171,34 +1175,25 @@ export default {
       this.showExportOptions = false;
     },
 
-    // 导出为DOCX（通过PDF转换）
+    // 导出为DOCX
     async exportAsDocx() {
       if (!this.editor) return;
       
       try {
-        // 获取编辑器内容容器
-        const editorContent = this.$el.querySelector('.editor-content');
-        if (!editorContent) {
-          throw new Error('无法找到编辑器内容');
-        }
-        
         // 显示加载提示
         this.showSaveMessage("正在生成DOCX文档，请稍候...", "info");
         
-        // 使用PDF转DOCX服务
-        const docxBlob = await this.pdfExportService.pdfToDocx(editorContent, {
-          title: `document_${new Date().toISOString().slice(0, 10)}`,
+        // 使用新的DOCX导出服务
+        await this.docxExportService.exportToDocx(this, {
+          title: this.exportStyles.title || '导出文档',
+          filename: `document_${new Date().toISOString().slice(0, 10)}.docx`,
           ...this.exportStyles
         });
-        
-        // 下载文件
-        const filename = `document_${new Date().toISOString().slice(0, 10)}.docx`;
-        this.pdfExportService.downloadFile(docxBlob, filename);
         
         this.showSaveMessage("DOCX导出成功", "success");
       } catch (error) {
         console.error('DOCX导出失败:', error);
-        this.showSaveMessage("DOCX导出失败，请重试", "error");
+        this.showSaveMessage(`DOCX导出失败: ${error.message}`, "error");
       }
       
       this.showExportOptions = false;

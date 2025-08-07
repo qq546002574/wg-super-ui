@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DOCX 导出测试</title>
+  <link rel="stylesheet" href="../node_modules/element-ui/lib/theme-chalk/index.css">
+  <style>
+    body {
+      font-family: 'Microsoft YaHei', Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #eee;
+    }
+    
+    .test-button {
+      margin: 10px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      background: #409eff;
+      color: white;
+    }
+    
+    .test-button:hover {
+      background: #66b1ff;
+    }
+    
+    .message {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+    }
+    
+    .message.success {
+      background: #f0f9ff;
+      border: 1px solid #91d5ff;
+      color: #1890ff;
+    }
+    
+    .message.error {
+      background: #fff2f0;
+      border: 1px solid #ffccc7;
+      color: #ff4d4f;
+    }
+    
+    .message.info {
+      background: #f6ffed;
+      border: 1px solid #b7eb8f;
+      color: #52c41a;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="header">
+        <h1>🧪 DOCX 导出功能测试</h1>
+        <p>专门测试 DOCX 导出是否能正常工作</p>
+      </div>
+
+      <div class="message" id="messageBox"></div>
+
+      <!-- 编辑器 -->
+      <wg-editor-plus 
+        ref="editor"
+        :initial-content="testContent"
+        style="min-height: 300px; border: 1px solid #ddd; border-radius: 6px;">
+      </wg-editor-plus>
+
+      <!-- 测试按钮 -->
+      <div style="text-align: center; margin-top: 20px;">
+        <button class="test-button" @click="testDocxExport">
+          📄 测试 DOCX 导出
+        </button>
+        <button class="test-button" @click="loadTestContent">
+          📝 加载测试内容
+        </button>
+        <button class="test-button" @click="clearContent">
+          🗑️ 清空内容
+        </button>
+      </div>
+
+      <!-- 说明 -->
+      <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <h4>测试说明：</h4>
+        <ul>
+          <li>点击"测试 DOCX 导出"按钮导出文档</li>
+          <li>如果成功，会自动下载 .docx 文件</li>
+          <li>下载的文件应该能在 Microsoft Word 中正常打开</li>
+          <li>文档应该包含所有格式化的内容</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入依赖 -->
+  <script src="../node_modules/vue/dist/vue.js"></script>
+  <script src="../node_modules/element-ui/lib/index.js"></script>
+  <script src="../dist/lib/wg-component-library.umd.min.js"></script>
+  
+  <script>
+    new Vue({
+      el: '#app',
+      data() {
+        return {
+          testContent: {
+            html: `
+              <h1>DOCX 导出测试文档</h1>
+              
+              <h2>基本文本格式</h2>
+              <p>这是一个包含 <strong>粗体</strong>、<em>斜体</em>、<u>下划线</u> 和 <code>代码</code> 的段落。</p>
+              
+              <h2>列表测试</h2>
+              <ul>
+                <li>无序列表项 1</li>
+                <li>无序列表项 2</li>
+                <li>无序列表项 3</li>
+              </ul>
+              
+              <ol>
+                <li>有序列表项 1</li>
+                <li>有序列表项 2</li>
+                <li>有序列表项 3</li>
+              </ol>
+              
+              <h2>表格测试</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>标题1</th>
+                    <th>标题2</th>
+                    <th>标题3</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>数据1</td>
+                    <td>数据2</td>
+                    <td>数据3</td>
+                  </tr>
+                  <tr>
+                    <td>数据4</td>
+                    <td>数据5</td>
+                    <td>数据6</td>
+                  </tr>
+                </tbody>
+              </table>
+              
+              <h2>引用测试</h2>
+              <blockquote>
+                <p>这是一个引用文本，用于测试引用格式是否正确转换到Word文档中。</p>
+              </blockquote>
+              
+              <h2>代码块测试</h2>
+              <pre><code>function test() {
+  console.log("这是一个代码块测试");
+  return true;
+}</code></pre>
+              
+              <p>如果这个文档能够成功导出为 DOCX 格式并在 Word 中正常显示，说明导出功能工作正常。</p>
+            `,
+            text: '',
+            json: null
+          }
+        }
+      },
+      methods: {
+        async testDocxExport() {
+          try {
+            this.showMessage('正在生成 DOCX 文档...', 'info');
+            
+            // 直接调用编辑器的 DOCX 导出方法
+            await this.$refs.editor.exportAsDocx();
+            
+            this.showMessage('DOCX 导出成功！请检查下载的文件。', 'success');
+          } catch (error) {
+            console.error('DOCX 导出测试失败:', error);
+            this.showMessage('DOCX 导出失败: ' + error.message, 'error');
+          }
+        },
+        
+        loadTestContent() {
+          this.$refs.editor.editor.commands.setContent(this.testContent.html);
+          this.showMessage('测试内容已加载', 'success');
+        },
+        
+        clearContent() {
+          this.$refs.editor.editor.commands.clearContent();
+          this.showMessage('内容已清空', 'info');
+        },
+        
+        showMessage(text, type) {
+          const messageBox = document.getElementById('messageBox');
+          messageBox.textContent = text;
+          messageBox.className = `message ${type}`;
+          messageBox.style.display = 'block';
+          
+          // 3秒后自动隐藏
+          setTimeout(() => {
+            messageBox.style.display = 'none';
+          }, 3000);
+        }
+      },
+      
+      mounted() {
+        // 加载测试内容
+        this.$nextTick(() => {
+          this.loadTestContent();
+        });
+      }
+    });
+  </script>
+</body>
+</html>

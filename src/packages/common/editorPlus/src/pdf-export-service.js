@@ -176,25 +176,18 @@ class PdfExportService {
   }
 
   /**
-   * PDF 转 DOCX（通过先生成PDF，然后处理内容）
+   * HTML 转 DOCX（直接转换，不经过PDF）
    * @param {HTMLElement} element - 要转换的DOM元素
    * @param {Object} options - 配置选项
    * @returns {Promise<Blob>} DOCX Blob
    */
   async pdfToDocx(element, options = {}) {
     try {
-      // 先生成PDF
-      const pdfBlob = await this.htmlToPdf(element, options);
-      
-      // 由于纯前端PDF转DOCX比较复杂，这里我们采用一个变通的方法：
-      // 1. 提取HTML内容
-      // 2. 使用现有的DOCX导出器
-      
-      // 这里需要引入现有的DOCX导出器
-      const { Document, Paragraph, TextRun, Packer, HeadingLevel, AlignmentType } = await import('docx');
+      // 动态导入 docx 库
+      const { Document, Paragraph, TextRun, Packer, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = await import('docx');
       
       // 解析HTML内容为DOCX元素
-      const docxElements = this.parseHtmlToDocxElements(element);
+      const docxElements = await this.parseHtmlToDocxElements(element, { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle });
       
       const doc = new Document({
         sections: [{
@@ -214,29 +207,104 @@ class PdfExportService {
           },
           children: docxElements
         }],
+        creator: "wg-editor-plus",
+        title: options.title || "导出文档",
+        description: "由 wg-editor-plus 生成的文档"
       });
 
       return await Packer.toBlob(doc);
     } catch (error) {
-      console.error('PDF转DOCX失败:', error);
-      throw new Error('PDF转DOCX失败: ' + error.message);
+      console.error('HTML转DOCX失败:', error);
+      throw new Error('DOCX生成失败: ' + error.message);
     }
   }
 
   /**
    * 解析HTML为DOCX元素
    * @param {HTMLElement} element - HTML元素
+   * @param {Object} docxClasses - DOCX类库对象
    * @returns {Array} DOCX元素数组
    */
-  parseHtmlToDocxElements(element) {
-    const { Document, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType } = require('docx');
+  async parseHtmlToDocxElements(element, docxClasses) {
+    const { Document, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType, WidthType, BorderStyle } = docxClasses;
     const elements = [];
+    
+    const getTextStyle = (node) => {
+      const style = {
+        bold: false,
+        italics: false,
+        underline: undefined,
+        color: undefined,
+        size: 24 // 默认12pt
+      };
+      
+      // 检查节点标签
+      let currentNode = node;
+      while (currentNode && currentNode.nodeType === Node.ELEMENT_NODE) {
+        const tagName = currentNode.tagName.toLowerCase();
+        if (tagName === 'strong' || tagName === 'b') {
+          style.bold = true;
+        }
+        if (tagName === 'em' || tagName === 'i') {
+          style.italics = true;
+        }
+        if (tagName === 'u') {
+          style.underline = {};
+        }
+        currentNode = currentNode.parentNode;
+      }
+      
+      return style;
+    };
+    
+    const processTextNode = (node, parentStyle = {}) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.trim();
+        if (text) {
+          return new TextRun({ 
+            text,
+            ...parentStyle
+          });
+        }
+        return null;
+      }
+      
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tagName = node.tagName.toLowerCase();
+        const style = { ...parentStyle };
+        
+        // 更新样式
+        if (tagName === 'strong' || tagName === 'b') style.bold = true;
+        if (tagName === 'em' || tagName === 'i') style.italics = true;
+        if (tagName === 'u') style.underline = {};
+        if (tagName === 'code') {
+          style.font = 'Courier New';
+          style.size = 20; // 10pt
+        }
+        if (tagName === 'mark') {
+          style.highlight = 'yellow';
+        }
+        
+        const children = [];
+        for (let child of node.childNodes) {
+          const processed = processTextNode(child, style);
+          if (processed) {
+            children.push(processed);
+          }
+        }
+        return children;
+      }
+      
+      return null;
+    };
     
     const processNode = (node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent.trim();
         if (text) {
-          return new TextRun({ text });
+          return new Paragraph({
+            children: [new TextRun({ text })]
+          });
         }
         return null;
       }
@@ -256,37 +324,141 @@ class PdfExportService {
               children: [new TextRun({
                 text: node.textContent,
                 bold: true,
-                size: (32 - (level - 1) * 2) * 2
+                size: (32 - (level - 1) * 2),
+                font: 'Microsoft YaHei'
               })],
-              heading: HeadingLevel[`HEADING_${level}`]
+              heading: HeadingLevel[`HEADING_${level}`],
+              spacing: { before: 240, after: 120 }
             });
             
           case 'p':
-            const children = [];
+            const textRuns = [];
             for (let child of node.childNodes) {
-              const processed = processNode(child);
-              if (processed) children.push(processed);
+              const processed = processTextNode(child);
+              if (processed) {
+                if (Array.isArray(processed)) {
+                  textRuns.push(...processed);
+                } else {
+                  textRuns.push(processed);
+                }
+              }
             }
             return new Paragraph({
-              children: children.length > 0 ? children : [new TextRun("")]
+              children: textRuns.length > 0 ? textRuns : [new TextRun("")],
+              spacing: { after: 120 }
             });
             
           case 'table':
-            // 简化的表格处理
-            const rows = Array.from(node.rows).map(row => {
-              const cells = Array.from(row.cells).map(cell => {
-                return new TableCell({
-                  children: [new Paragraph({
-                    children: [new TextRun(cell.textContent)]
-                  })]
+            try {
+              const rows = Array.from(node.rows).map(row => {
+                const cells = Array.from(row.cells).map((cell, index) => {
+                  const isHeader = cell.tagName.toLowerCase() === 'th';
+                  const cellChildren = [];
+                  
+                  for (let child of cell.childNodes) {
+                    const processed = processTextNode(child, isHeader ? { bold: true } : {});
+                    if (processed) {
+                      if (Array.isArray(processed)) {
+                        cellChildren.push(...processed);
+                      } else {
+                        cellChildren.push(processed);
+                      }
+                    }
+                  }
+                  
+                  return new TableCell({
+                    children: [new Paragraph({
+                      children: cellChildren.length > 0 ? cellChildren : [new TextRun(cell.textContent || "")]
+                    })],
+                    width: {
+                      size: 2500, // 固定宽度
+                      type: WidthType.DXA
+                    },
+                    margins: {
+                      top: 100,
+                      bottom: 100,
+                      left: 100,
+                      right: 100
+                    }
+                  });
                 });
+                return new TableRow({ children: cells });
               });
-              return new TableRow({ children: cells });
+              
+              return new Table({
+                rows,
+                width: {
+                  size: 100,
+                  type: WidthType.PERCENTAGE
+                },
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                  bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                  left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                  right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                  insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                  insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "000000" }
+                },
+                margins: {
+                  bottom: 240
+                }
+              });
+            } catch (tableError) {
+              console.warn('表格处理失败:', tableError);
+              return new Paragraph({
+                children: [new TextRun({ text: node.textContent || "" })]
+              });
+            }
+            
+          case 'ul':
+          case 'ol':
+            const listItems = [];
+            const listItems_nodes = Array.from(node.querySelectorAll('li'));
+            listItems_nodes.forEach((li, index) => {
+              const bullet = tagName === 'ul' ? '•' : `${index + 1}.`;
+              listItems.push(new Paragraph({
+                children: [new TextRun({ text: `${bullet} ${li.textContent}` })],
+                spacing: { after: 60 }
+              }));
             });
-            return new Table({ rows });
+            return listItems;
+            
+          case 'blockquote':
+            return new Paragraph({
+              children: [new TextRun({
+                text: node.textContent,
+                italics: true,
+                color: "666666"
+              })],
+              indent: { left: 720 },
+              spacing: { before: 120, after: 120 }
+            });
+            
+          case 'pre':
+          case 'code':
+            return new Paragraph({
+              children: [new TextRun({
+                text: node.textContent,
+                font: 'Courier New',
+                size: 20
+              })],
+              spacing: { before: 120, after: 120 }
+            });
+            
+          case 'br':
+            return new Paragraph({
+              children: [new TextRun({ text: "" })]
+            });
+            
+          case 'hr':
+            return new Paragraph({
+              children: [new TextRun({ text: "──────────────────────────────────" })],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 120, after: 120 }
+            });
             
           default:
-            // 递归处理子节点
+            // 对于其他元素，递归处理子节点
             const childElements = [];
             for (let child of node.childNodes) {
               const processed = processNode(child);
@@ -304,6 +476,7 @@ class PdfExportService {
       return null;
     };
     
+    // 处理主要内容
     for (let child of element.childNodes) {
       const processed = processNode(child);
       if (processed) {
@@ -315,7 +488,14 @@ class PdfExportService {
       }
     }
     
-    return elements.length > 0 ? elements : [new Paragraph({ children: [new TextRun("")] })];
+    // 确保至少有一个段落
+    if (elements.length === 0) {
+      elements.push(new Paragraph({ 
+        children: [new TextRun({ text: "文档内容为空" })] 
+      }));
+    }
+    
+    return elements;
   }
 
   /**
