@@ -1,0 +1,36 @@
+.wg-code-select-wrap {
+  .el-select {
+    width: 100%;
+  }
+  /deep/ .isFixHeight .el-input__inner {
+    height: 28px;
+  }
+  /deep/ .isFixHeight .el-select__tags {
+    height: 28px;
+    overflow-y: auto;
+    max-width: 100% !important;
+  }
+  // .dds
+  .isSelectAll {
+    /deep/ .el-tag.el-tag--info {
+      &:first-child {
+        display: none;
+      }
+    }
+  }
+}
+
+.wg-cascader {
+  height: 28px !important;
+  /deep/.el-input__inner {
+    height: 28px !important;
+  }
+  display: flex;
+  .el-select {
+    margin-right: 6px;
+    width: 100%;
+  }
+  .el-select:last-child {
+    margin-right: 0px;
+  }
+}

@@ -1,0 +1,301 @@
+.wg-steps-loading {
+  display: flex;
+  justify-content: center;
+  ._icon {
+    color: #22ace3;
+    margin-right: 6px;
+  }
+}
+
+.wg-steps::-webkit-scrollbar {
+  display: none;
+  // width: 0px;
+}
+.wg-steps::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+.wg-steps::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  -moz-border-radius: 3px;
+  -webkit-border-radius: 3px;
+  background-color: #666;
+}
+
+.wg-steps::-webkit-scrollbar-track {
+  background-color: #eee;
+}
+
+.wg-steps-com {
+  // display: flex;
+  // align-items: center;
+  .wg-steps-vertical {
+    flex-direction: column;
+  }
+  .standard {
+    // width: 200px;
+    white-space: nowrap;
+    overflow-y: hidden;
+    overflow-x: auto;
+    .standard_position {
+      position: relative;
+      display: inline-block;
+      // position: absolute;
+    }
+  }
+
+  .wg-steps {
+    overflow: -moz-hidden-unscrollable;
+    display: flex;
+    .wg-actived {
+      div {
+        // color: #22ACE3 !important;
+      }
+    }
+    .wg-disabled {
+      div {
+        color: #9d9e9e !important;
+      }
+    }
+    .vertical{
+      .wg-steps-item__right{
+        // min-width: 100px;
+      }
+    }
+    .wg-steps-item:last-child{
+      .wg-steps-item__line{
+        opacity: 0;
+      }
+    }
+    .wg-steps-item {
+      display: flex;
+      // position: relative;
+
+      .wg-steps-item__tail {
+      }
+
+      .wg-steps-item__left {
+        display: flex;
+
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+
+        .wg-steps-item__node {
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 12px;
+          width: 12px;
+          border: 2px solid #dcdcdc;
+        }
+
+        .wg-steps-item__line {
+          margin: 5px 0;
+          display: flex;
+          flex: 1;
+          min-height: 48px;
+          // padding-bottom:20px;
+          // height:100;
+          // min-height: 36px;
+          width: 1px;
+          border-left: 1px solid #dcdcdc;
+        }
+
+        .line-active {
+          border-left: 2px solid #22ace3;
+        }
+
+        .active {
+          // color: #22ACE3;
+          border: 2px solid #22ace3;
+        }
+        .active-main {
+          span {
+            color: #fff;
+          }
+          background-color: #22ace3;
+        }
+        .wg-steps-icon {
+          background-color: transparent;
+          border-radius: 0;
+          border: 0px;
+          height: 15px;
+          width: 15px;
+        }
+        .wg-steps-noicon{
+          margin-top:6px;
+          
+        }
+        .wg-steps-icon-right{
+          background-color: transparent;
+          border-radius: 0;
+          border: 0px;
+          height: 12px;
+          width: 12px;
+          margin-top:4px;
+
+        }
+        .wg-steps-serial {
+          margin-top:0px;
+          height: 24px;
+          width: 24px;
+          font-size: 16px;
+        }
+        .wg-steps-serial-icon {
+          border: 0px;
+          height: 24px;
+          width: 24px;
+        }
+      }
+
+      .wg-steps-item__right {
+        // position: relative;
+        // margin-top:-20px;
+        margin: 0px 0 0px 8px;
+        // top: -20px;
+        // left: 12px;
+        // margin-left:6px;
+        display: flex;
+        flex-direction: column;
+        .wg-steps-item__label {
+          font-size: 16px;
+          line-height: 24px;
+          font-weight: 400;
+          color: #505356;
+          // line-height:18px;
+          // margin-bottom: 4px;
+          .wg-steps-item__line {
+            margin: 10px 8px 0 16px;
+            display: flex;
+            flex:1;
+            // padding-bottom:20px;
+            height: 1px;
+            // height:100;
+            // min-height: 36px;
+            // width:1px;
+            border: 1px solid #dcdcdc;
+          }
+        }
+        .active {
+          color: #22ace3;
+        }
+        .wg-steps-item__value {
+          // position: fixed;
+          color: #202122;
+          font-size: 14px;
+          margin-top: 2px;
+          line-height: 20px;
+          margin-bottom: 20px;
+          span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+          }
+        }
+        .steps-item_right{
+          margin-bottom:0px;
+          width:260px;
+          overflow: hidden;
+          // white-space:
+
+          white-space: normal;
+
+          text-overflow: ellipsis;
+          -webkit-line-clamp: 2;
+          line-clamp: 2;
+        }
+      }
+      
+      .line-active {
+        border: 1px solid #22ace3;
+      }
+      .wg-steps-serial__right {
+        margin: -13px 0 10px 16px;
+      }
+      .active {
+        color: #22ace3;
+      }
+
+      .wg-steps-item__left__standard {
+        display: flex;
+        align-items: center;
+        // .wg-steps-item__body{
+        //     margin-left:6px;
+
+        // }
+        .wg-steps-item__right {
+          flex: 1;
+          .wg-steps-item__value {
+            margin-bottom: 0px;
+            display: flex;
+            // flex-wrap: wrap;
+            span {
+              max-width: 160px;
+              // min-width: 80px;
+              // width:auto;
+              // width: auto;
+              overflow: hidden;
+
+              // white-space: nowrap;
+
+              text-overflow: ellipsis;
+              -webkit-line-clamp: 2;
+              line-clamp: 2;
+              // white-space: normal;
+              // text-overflow: -o-ellipsis-lastline;
+              // overflow: hidden;
+              // text-overflow: ellipsis;
+              // display: -webkit-box;
+
+              // -webkit-box-orient: vertical;
+            }
+          }
+        }
+        .wg-steps-item__node {
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 12px;
+          width: 12px;
+          border: 1px solid #dcdcdc;
+        }
+        .standard_active {
+          div {
+            color: #22ace3 !important;
+          }
+        }
+
+        .active {
+          border: 1px solid #22ace3;
+        }
+
+        .wg-steps-item__line {
+          margin: 0 12px;
+          display: flex;
+          width: 36px;
+          // padding-bottom:20px;
+          height: 1px;
+          // height:100;
+          // min-height: 36px;
+          // width:1px;
+          border: 1px solid #dcdcdc;
+        }
+      }
+    }
+    .wg-steps-item:last-child {
+      .wg-steps-item__line {
+        border: 0;
+      }
+    }
+  }
+}

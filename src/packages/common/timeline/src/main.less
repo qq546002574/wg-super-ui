@@ -1,0 +1,332 @@
+.wg-timeline-loading {
+  display: flex;
+  justify-content: center;
+  ._icon {
+    color: #22ace3;
+    margin-right: 6px;
+  }
+}
+
+.wg-timeline::-webkit-scrollbar {
+  display: none;
+  // width: 0px;
+}
+.wg-timeline::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+.wg-timeline::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  -moz-border-radius: 3px;
+  -webkit-border-radius: 3px;
+  background-color: #666;
+}
+
+.wg-timeline::-webkit-scrollbar-track {
+  background-color: #eee;
+}
+
+.wg-timeline-com {
+  display: flex;
+  align-items: center;
+  .wg-timeline-button {
+    border-radius: 50%;
+    padding-left: 0;
+    padding-right: 0;
+    height: 32px;
+    width: 32px;
+  }
+  .wg-timeline-vertical {
+    flex-direction: column;
+  }
+  .standard {
+    width:100%;
+    // width: 200px;
+    white-space: nowrap;
+    overflow-y: hidden;
+    overflow-x: auto;
+    .standard_position {
+      position: relative;
+      display: inline-block;
+      // position: absolute;
+    }
+  }
+
+  .wg-timeline {
+    overflow: -moz-hidden-unscrollable;
+    display: flex;
+
+    // .wg-disabled{
+    //     div{
+    //     cursor: default;
+    //     color: #9D9E9E;
+    //     }
+
+    // }
+    .wg-actived {
+      div {
+        cursor: pointer;
+        // color: #22ACE3 !important;
+      }
+    }
+    .wg-disabled {
+      div {
+        color: #9d9e9e !important;
+      }
+    }
+
+    .wg-timeline-item {
+      cursor: pointer;
+      display: flex;
+      .wg-timeline-item__tail {
+      }
+      .active {
+        .wg-timeline-item__label{
+          color: #22ace3 !important;
+        }
+        .wg-timeline-item__value{
+          color: #22ace3 !important;
+        }
+        
+      }
+      .wg-timeline-item__right {
+        margin-left: 6px;
+        display: flex;
+        flex-direction: column;
+        .wg-timeline-item__label {
+          font-size: 12px;
+          color: #505356;
+          // line-height:18px;
+          // margin-bottom: 4px;
+        }
+        .wg-timeline-item__value {
+          color: #202122;
+          font-size: 14px;
+          margin-top: 2px;
+          line-height: 20px;
+
+          span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+          }
+        }
+        .wg-timeline-item__value-sub{
+          margin-top:8px;
+          padding:8px 12px;
+          // width: 262px;
+          // height: 156px;
+          background: #F6F8FA;
+          border: 1px solid rgba(229,236,239,1);
+          border-radius: 4px;
+          font-size: 14px;
+          color: #505356;
+        }
+        .small {
+          font-size: 12px;
+          margin-top: 4px;
+        }
+        .accordion{
+            // opacity: 0;
+        }
+        .accordion-no{
+            // opacity: 0;
+            // height:1px;
+            // max-height:1px;
+            // top:-700px;
+            // 
+            // // transition-property: height,max-height,margin-bottom;
+            // // transition-duration: 0.5s;
+            // transition: top 0.8s;
+            display: inline-block;
+                overflow: hidden;
+                // background-color: orange;
+                max-height: 1px;
+                margin-bottom: 20px;
+                
+                -webkit-transition: max-height .5s linear;
+                transition: max-height .5s linear;
+            // z-index:-99;
+            // display:none;
+            // transition: fold_bottom 0.5s;
+            // -webkit-transition: margin-bottom 0.5s;
+        }
+        .accordion-active{
+            // opacity: 1;
+            // display:block;
+            display: inline-block;
+                overflow: hidden;
+            max-height: 300px;
+            -webkit-transition: max-height .5s linear;
+            transition: max-height .5s linear;
+            margin-bottom: 20px;
+            // transition-property: max-height,margin-bottom;
+            // transition-duration: 0.5s;
+            // transition:all  1s;
+
+            // height:30px;
+            // animation: unfold_top 0.6s;
+            // -webkit-transition: margin-bottom 0.5s;
+        }
+        // .accordion {
+        //   opacity: 0;
+        // }
+        // .accordion-no {
+        //   margin-bottom: 0px;
+        //   height: 0;
+        //   transition: all 0.5s ease;
+        //   -webkit-transition: all 0.5s ease;
+        // }
+        // .accordion-active {
+        //   margin-bottom: 20px;
+        //   opacity: 1;
+        //   height: auto;
+        //   // height:30px;
+        //   transition: all 0.5s ease;
+        //   -webkit-transition: all 0.5s ease;
+        // }
+      }
+      .wg-timeline-item__left__standard {
+        display: flex;
+        align-items: center;
+        // .wg-timeline-item__body{
+        //     margin-left:6px;
+
+        // }
+        .wg-timeline-item__right {
+          flex: 1;
+          .wg-timeline-item__value {
+            margin-bottom: 0px;
+            display: flex;
+            // flex-wrap: wrap;
+            span {
+              max-width: 160px;
+              // min-width: 80px;
+              // width:auto;
+              // width: auto;
+              overflow: hidden;
+
+              // white-space: nowrap;
+
+              text-overflow: ellipsis;
+              -webkit-line-clamp: 2;
+              line-clamp: 2;
+              // white-space: normal;
+              // text-overflow: -o-ellipsis-lastline;
+              // overflow: hidden;
+              // text-overflow: ellipsis;
+              // display: -webkit-box;
+
+              // -webkit-box-orient: vertical;
+            }
+          }
+        }
+        .wg-timeline-item__line {
+          // flex:1;
+        }
+        .wg-timeline-item__node {
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 12px;
+          width: 12px;
+          border: 1px solid #dcdcdc;
+        }
+        .wg-timeline-item__node_active{
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 6px;
+          width: 6px;
+          background-color: #22ace3;
+        }
+        .standard_active {
+          div {
+            cursor: pointer !important;
+            color: #22ace3 !important;
+          }
+        }
+
+        .active {
+          border: 1px solid #22ace3;
+        }
+
+        .wg-timeline-item__line {
+          margin: 0 12px;
+          display: flex;
+          width: 36px;
+          // padding-bottom:20px;
+          height: 1px;
+          // height:100;
+          // min-height: 36px;
+          // width:1px;
+          border: 1px solid #dcdcdc;
+        }
+      }
+      .wg-timeline-item__left {
+        display: flex;
+
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+
+        .wg-timeline-item__node {
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 12px;
+          width: 12px;
+          border: 1px solid #dcdcdc;
+        }
+        
+        .wg-timeline-item__node_active{
+          border-radius: 50%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 6px;
+          width: 6px;
+          background-color: #22ace3;
+        }
+        .active {
+          border: 1px solid #22ace3;
+          color: #22ace3 !important;
+        }
+        .wg-timeline-icon {
+          color: #dcdcdc;
+          background-color: transparent;
+          border-radius: 0;
+          border: 0px;
+          height: 12px;
+          width: 12px;
+        }
+
+        .wg-timeline-item__line {
+          margin: 5px 0;
+          display: flex;
+          flex: 1;
+          padding-bottom: 20px;
+          // height:100;
+          // min-height: 36px;
+          width: 1px;
+          border: 1px solid #dcdcdc;
+        }
+      }
+    }
+    .wg-timeline-item:last-child {
+      .wg-timeline-item__line {
+        border: 0;
+      }
+    }
+  }
+}

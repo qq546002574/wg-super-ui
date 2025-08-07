@@ -1,0 +1,74 @@
+.wg-transfer-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  .el-transfer-panel__header {
+    height: 36px;
+    line-height: 36px;
+    .el-checkbox {
+      font-weight: 400;
+      height: 36px;
+      .el-checkbox__label {
+        line-height: 16px;
+        font-size: 14px;
+      }
+      .wg-transfel-title {
+        font-size: 14px;
+      }
+    }
+  }
+
+  .el-transfer-panel__body {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    padding-bottom: 8px;
+    .el-transfer-panel__item {
+      height: auto;
+    }
+    /deep/.el-checkbox__label {
+      white-space: normal;
+      span {
+        color: #505356;
+      }
+    }
+    .el-transfer-panel__item.el-checkbox .el-checkbox__label {
+      white-space: normal;
+    }
+    .el-checkbox {
+      font-weight: 400;
+      padding: 0 6px;
+      margin: 0 6px 2px 6px;
+    }
+    .el-checkbox:hover {
+      background-color: #edf5fa;
+    }
+    .is-checked {
+      background-color: #e4f3fc;
+    }
+    .el_transfer-panel__empty-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-grow: 1;
+    }
+    .el-transfer-panel__list {
+      overflow: hidden; /* 阻止滚动条显示 */
+      overflow-y: scroll; /* 保持内容可滚动 */
+      height: 0;
+      flex-grow: 1;
+      padding-bottom: 0;
+    }
+    .el-transfer-panel__list::-webkit-scrollbar-track {
+      background-color: transparent; /* 隐藏滚动条背景 */
+      border: none;
+    }
+    .el-transfer-panel__filter {
+      margin: 12px;
+    }
+  }
+
+  // /deep/.el-checkbox__input.is-checked+.el-checkbox__label{
+  //     color: red;
+  // }
+}

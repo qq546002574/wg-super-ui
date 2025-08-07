@@ -1,0 +1,98 @@
+.scanCodeBody {
+  height: 290px;
+  display: flex;
+  flex-direction: column;
+  // justify-content: center;
+  align-items: center;
+  &__icon {
+    width: 218px;
+    height: 147px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    img {
+      width: 100%;
+      height: 100%;
+    }
+    .sccuessStop {
+      width: 100px;
+      height: 100px;
+    }
+  }
+  &__txt {
+    height: 22px;
+    font-family: PingFangSC-Regular;
+    font-size: 16px;
+    color: #929494;
+    margin-bottom: 30px;
+  }
+  &__codeBox {
+    width: 312px;
+    height: 60px;
+    padding: 2px;
+    border: 2px solid #22ACE3;
+    box-sizing: border-box;
+    position: relative;
+    // 左右遮线
+    &::before,&::after{
+      content: '';
+      position: absolute;
+      width: 4px;
+      height: calc(100% - 16px);
+      top: 50%;
+      transform: translateY(-50%);
+      background-color: white;
+      z-index: 1;
+    }
+    &::before {
+      left: -2px;
+    }
+    &::after {
+      right: -2px;
+    }
+    &__val {
+      width: 100%;
+      height: 100%;
+      font-family: PingFangSC-Semibold;
+      // background-color: #F4F8FA;
+      font-size: 16px;
+      color: #202122;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      // 上下遮线
+      &::before,&::after{
+        content: '';
+        position: absolute;
+        height: 4px;
+        width: calc(100% - 16px);
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: white;
+        z-index: 1;
+      }
+      &::before {
+        top: -5px;
+      }
+      &::after {
+        bottom: -5px;
+      }
+      ::v-deep .wg-input-custom{
+        height: 100%;
+        .wg-el-input {
+          height: 100%;
+          .el-input__inner {
+            border: 0;
+            height: 100%;
+            background-color: #F4F8FA;
+          }
+        }
+      } 
+    }
+  }
+}
+.alignCenter {
+  display: flex;
+  align-items: center;
+}
