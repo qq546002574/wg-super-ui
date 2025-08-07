@@ -195,7 +195,7 @@ demo/
 ### 增强版导出
 - 包含文档标题和导出时间
 - 自定义样式表
-- 元数据支持
+- 优化的浏览器兼容性（避免Buffer问题）
 - 文件名: `导出文档_增强版.docx`
 
 ### 自定义样式导出
@@ -203,6 +203,16 @@ demo/
 - 自定义标题颜色和字体
 - 品牌化页脚
 - 文件名: `导出文档_自定义样式.docx`
+
+### ZIP包导出 🆕
+- 包含多种格式的完整导出包
+- 包含文件：
+  - `document.docx`: 主要的Word文档
+  - `original.html`: 可在浏览器中预览的HTML文件
+  - `metadata.json`: 文档元数据（JSON格式）
+  - `readme.txt`: 详细说明文件
+- 使用JSZip生成，支持压缩
+- 文件名: `wg-editor-plus-export-{timestamp}.zip`
 
 ## 浏览器兼容性
 
@@ -244,6 +254,36 @@ if (!this.$refs.editor || !this.$refs.editor.editor) {
 - 确保表格 HTML 结构正确
 - 检查 `tbody` 和 `thead` 元素
 - 验证单元格内容
+
+#### 4. ⚠️ "nodebuffer is not supported by this platform" 错误
+这是最常见的错误，发生在浏览器环境中使用 Node.js 的 Buffer 功能时。
+
+**问题原因**: 使用了 `Packer.toBuffer()` 方法，该方法在浏览器中不受支持。
+
+**解决方案**: 使用 `Packer.toBlob()` 代替:
+```javascript
+// ❌ 错误做法 - 在浏览器中会报错
+const buffer = await Packer.toBuffer(doc);
+
+// ✅ 正确做法 - 浏览器兼容
+const blob = await Packer.toBlob(doc);
+```
+
+**JSZip 集成的正确方式**:
+```javascript
+// 生成docx文档的blob
+const docxBlob = await Packer.toBlob(doc);
+
+// 转换为ArrayBuffer用于JSZip
+const arrayBuffer = await docxBlob.arrayBuffer();
+
+// 添加到ZIP文件
+const zip = new JSZip();
+zip.file("document.docx", arrayBuffer);
+
+// 生成ZIP
+const zipBlob = await zip.generateAsync({type: "blob"});
+```
 
 ### 调试技巧
 

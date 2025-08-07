@@ -7,8 +7,9 @@
 
 ### 1. 核心导出功能
 - ✅ **基础版导出**: 基本的HTML到DOCX转换
-- ✅ **增强版导出**: 带自定义标题和元数据的导出
+- ✅ **增强版导出**: 带自定义标题和元数据的导出（已修复Buffer问题）
 - ✅ **自定义样式导出**: 完全自定义的样式和格式
+- ✅ **ZIP包导出**: 包含DOCX、HTML、JSON和说明文件的完整导出包
 - ✅ **内容预览**: 获取并显示编辑器的HTML、文本和JSON内容
 
 ### 2. HTML元素支持
@@ -63,6 +64,7 @@ demo/
     <wg-button type="primary" @click="exportWord">导出Word (基础版)</wg-button>
     <wg-button type="success" @click="exportWordAdvanced">导出Word (增强版)</wg-button>
     <wg-button type="info" @click="exportWithCustomStyle">导出Word (自定义样式)</wg-button>
+    <wg-button type="danger" @click="exportZipPackage">导出ZIP包 (含多种格式)</wg-button>
     <wg-button type="warning" @click="getEditorContent">获取编辑器内容</wg-button>
     
     <wg-editor-plus ref="editor" :readOnly="readOnly" style="height: 500px" />

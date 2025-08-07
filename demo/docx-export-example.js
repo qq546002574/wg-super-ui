@@ -527,36 +527,39 @@ class DocxExporter {
         }],
       });
 
-      // 使用JSZip进行额外处理
-      const buffer = await Packer.toBuffer(doc);
-      const zip = new JSZip();
-      
-      // 添加主文档
-      zip.file("document.docx", buffer);
-      
-      // 添加元数据文件
-      zip.file("metadata.json", JSON.stringify({
-        title: options.title || "wg-editor-plus 导出文档",
-        exportTime: new Date().toISOString(),
-        contentLength: content.text.length,
-        wordCount: content.text.split(/\s+/).length,
-        version: "1.0.0"
-      }, null, 2));
-      
-      // 添加说明文件
-      zip.file("readme.txt", `wg-editor-plus 导出文档包\n\n` +
-        `导出时间: ${new Date().toLocaleString()}\n` +
-        `文档长度: ${content.text.length} 字符\n` +
-        `字数统计: ${content.text.split(/\s+/).length} 词\n\n` +
-        `文件说明:\n` +
-        `- document.docx: 主要的Word文档\n` +
-        `- metadata.json: 文档元数据\n` +
-        `- readme.txt: 说明文件`);
+             // 直接使用docx库生成blob（避免Node.js Buffer问题）
+       const blob = await Packer.toBlob(doc);
+       
+       // 如果需要使用JSZip添加额外文件，可以使用以下代码：
+       /*
+       const arrayBuffer = await Packer.toBlob(doc).then(blob => blob.arrayBuffer());
+       const zip = new JSZip();
+       
+       // 添加主文档
+       zip.file("document.docx", arrayBuffer);
+       
+       // 添加元数据文件
+       zip.file("metadata.json", JSON.stringify({
+         title: options.title || "wg-editor-plus 导出文档",
+         exportTime: new Date().toISOString(),
+         contentLength: content.text.length,
+         wordCount: content.text.split(/\s+/).length,
+         version: "1.0.0"
+       }, null, 2));
+       
+       // 添加说明文件
+       zip.file("readme.txt", `wg-editor-plus 导出文档包\n\n` +
+         `导出时间: ${new Date().toLocaleString()}\n` +
+         `文档长度: ${content.text.length} 字符\n` +
+         `字数统计: ${content.text.split(/\s+/).length} 词\n\n` +
+         `文件说明:\n` +
+         `- document.docx: 主要的Word文档\n` +
+         `- metadata.json: 文档元数据\n` +
+         `- readme.txt: 说明文件`);
 
-      // 直接下载docx文件
-      const blob = new Blob([buffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
-      });
+       // 生成ZIP文件
+       const blob = await zip.generateAsync({type: "blob"});
+       */
       this.downloadFile(blob, filename);
       
       return { success: true, message: '增强版Word文档导出成功！' };

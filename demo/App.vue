@@ -4,6 +4,7 @@
     <wg-button type="primary" @click="exportWord">导出Word (基础版)</wg-button>
     <wg-button type="success" @click="exportWordAdvanced">导出Word (增强版)</wg-button>
     <wg-button type="info" @click="exportWithCustomStyle">导出Word (自定义样式)</wg-button>
+    <wg-button type="danger" @click="exportZipPackage">导出ZIP包 (含多种格式)</wg-button>
     <wg-button type="warning" @click="getEditorContent">获取编辑器内容</wg-button>
     <wg-editor-plus
         ref="editor"
@@ -536,19 +537,16 @@ export default {
           }],
         });
 
-        // 使用JSZip生成文档
-        const buffer = await Packer.toBuffer(doc);
-        const zip = new JSZip();
-        
-        // 可以在这里添加额外的文件到ZIP中
-        zip.file("document.docx", buffer);
-        zip.file("readme.txt", "这是由wg-editor-plus生成的Word文档\n导出时间: " + new Date().toISOString());
-        
-        // 生成ZIP文件
-        const zipBuffer = await zip.generateAsync({type: "blob"});
-        
-        // 但为了简单起见，我们直接下载docx文件
-        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+                 // 使用docx库直接生成blob
+         const blob = await Packer.toBlob(doc);
+         
+         // 如果需要使用JSZip添加额外文件，可以使用以下代码：
+         // const buffer = await Packer.toBlob(doc).then(blob => blob.arrayBuffer());
+         // const zip = new JSZip();
+         // zip.file("document.docx", buffer);
+         // zip.file("readme.txt", "这是由wg-editor-plus生成的Word文档\n导出时间: " + new Date().toISOString());
+         // const zipBlob = await zip.generateAsync({type: "blob"});
+         // 然后使用zipBlob而不是blob
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -700,6 +698,137 @@ export default {
       } catch (error) {
         console.error('自定义样式导出失败:', error);
         this.$message.error('自定义样式导出失败: ' + error.message);
+      }
+    },
+
+    // 使用JSZip的压缩包导出方法（解决Buffer问题）
+    async exportZipPackage() {
+      try {
+        const editorContent = this.$refs.editor.editor.getHTML();
+        if (!editorContent?.trim()) {
+          throw new Error('编辑器内容为空');
+        }
+
+        // 创建Word文档
+        const doc = new Document({
+          sections: [{
+            properties: {
+              page: {
+                size: { width: 11906, height: 16838 },
+                margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+              },
+            },
+            children: [
+              new Paragraph({
+                children: [new TextRun({
+                  text: "wg-editor-plus 导出文档包",
+                  size: 32,
+                  bold: true,
+                  color: "2E74B5",
+                  font: "Microsoft YaHei"
+                })],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 400 }
+              }),
+              new Paragraph({
+                children: [new TextRun({
+                  text: `导出时间: ${new Date().toLocaleString()}`,
+                  size: 20,
+                  italics: true,
+                  color: "666666",
+                  font: "Microsoft YaHei"
+                })],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 600 }
+              }),
+              ...this.parseHtmlToDocxElements(editorContent)
+            ]
+          }],
+        });
+
+        // 生成Word文档的blob并转换为arrayBuffer
+        const docxBlob = await Packer.toBlob(doc);
+        const docxArrayBuffer = await docxBlob.arrayBuffer();
+
+        // 创建ZIP包
+        const zip = new JSZip();
+        
+        // 添加主文档
+        zip.file("document.docx", docxArrayBuffer);
+        
+        // 添加元数据文件
+        const metadata = {
+          title: "wg-editor-plus 导出文档",
+          exportTime: new Date().toISOString(),
+          contentLength: this.$refs.editor.editor.getText().length,
+          wordCount: this.$refs.editor.editor.getText().split(/\s+/).length,
+          version: "1.0.0",
+          htmlContent: editorContent
+        };
+        zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+        
+        // 添加原始HTML文件
+        zip.file("original.html", `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>wg-editor-plus 原始内容</title>
+    <style>
+        body { font-family: Microsoft YaHei, Arial, sans-serif; margin: 40px; }
+        table { border-collapse: collapse; width: 100%; }
+        td, th { border: 1px solid #ddd; padding: 8px; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>wg-editor-plus 导出内容</h1>
+    <p><strong>导出时间:</strong> ${new Date().toLocaleString()}</p>
+    <hr>
+    ${editorContent}
+</body>
+</html>`);
+        
+        // 添加说明文件
+        zip.file("readme.txt", `wg-editor-plus 导出文档包
+
+导出时间: ${new Date().toLocaleString()}
+文档长度: ${this.$refs.editor.editor.getText().length} 字符
+字数统计: ${this.$refs.editor.editor.getText().split(/\s+/).length} 词
+
+文件说明:
+- document.docx: 主要的Word文档
+- metadata.json: 文档元数据（JSON格式）
+- original.html: 原始HTML内容（可用浏览器打开预览）
+- readme.txt: 本说明文件
+
+技术信息:
+- 编辑器: wg-editor-plus (基于TipTap)
+- 导出库: docx + JSZip
+- 导出方式: 纯前端实现，无服务器依赖`);
+
+        // 生成ZIP文件
+        const zipBlob = await zip.generateAsync({
+          type: "blob",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 }
+        });
+
+        // 下载ZIP文件
+        const url = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `wg-editor-plus-export-${new Date().getTime()}.zip`;
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setTimeout(() => window.URL.revokeObjectURL(url), 100);
+        
+        this.$message.success('ZIP导出包生成成功！包含Word文档、HTML原文件和元数据。');
+      } catch (error) {
+        console.error('ZIP导出失败:', error);
+        this.$message.error('ZIP导出失败: ' + error.message);
       }
     }
   }
