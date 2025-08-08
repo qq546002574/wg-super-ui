@@ -58,6 +58,10 @@ export class DocxExportService {
         json: editor.editor.getJSON()
       };
 
+      console.log('=== DOCX 导出开始 ===');
+      console.log('HTML 内容长度:', content.html.length);
+      console.log('HTML 内容预览:', content.html.substring(0, 200) + '...');
+
       if (!content.html || !content.html.trim()) {
         throw new Error('编辑器内容为空');
       }
@@ -80,6 +84,8 @@ export class DocxExportService {
         ImageRun,
         Media
       });
+
+      console.log('解析完成，生成了', docElements.length, '个元素');
 
       // 创建 Word 文档
       const doc = new Document({
@@ -107,6 +113,7 @@ export class DocxExportService {
       const filename = options.filename || `document_${new Date().toISOString().slice(0, 10)}.docx`;
       this.downloadFile(blob, filename);
 
+      console.log('=== DOCX 导出完成 ===');
       return { success: true, message: 'DOCX导出成功' };
 
     } catch (error) {
@@ -227,7 +234,31 @@ export class DocxExportService {
           });
 
         case 'img':
-          return await this.createImageParagraph(element, { Paragraph, ImageRun });
+          console.log('=== 发现图片元素 ===');
+          console.log('图片信息:', {
+            src: element.src ? element.src.substring(0, 100) + '...' : 'no src',
+            className: element.className,
+            width: element.width,
+            height: element.height,
+            naturalWidth: element.naturalWidth,
+            naturalHeight: element.naturalHeight,
+            attributes: Array.from(element.attributes).map(attr => `${attr.name}="${attr.value}"`)
+          });
+          
+          // 检查父元素
+          const parent = element.parentElement;
+          if (parent) {
+            console.log('父元素信息:', {
+              tagName: parent.tagName,
+              className: parent.className,
+              isUploadContainer: parent.classList.contains('upload-container'),
+              parentAttributes: Array.from(parent.attributes).map(attr => `${attr.name}="${attr.value}"`)
+            });
+          }
+          
+          const imgResult = await this.createImageParagraph(element, { Paragraph, ImageRun });
+          console.log('图片处理结果:', imgResult ? '成功创建段落' : '失败');
+          return imgResult;
 
         case 'table':
           return await this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
@@ -384,12 +415,14 @@ export class DocxExportService {
     const { Paragraph, ImageRun } = classes;
     const src = imgElement.src;
     
-    console.log('Processing image:', {
-      src: src ? src.substring(0, 50) + '...' : 'no src',
+    console.log('=== 开始处理图片 ===');
+    console.log('图片详细信息:', {
+      src: src ? src.substring(0, 100) + '...' : 'no src',
       width: imgElement.width,
       height: imgElement.height,
       naturalWidth: imgElement.naturalWidth,
       naturalHeight: imgElement.naturalHeight,
+      className: imgElement.className,
       attributes: Array.from(imgElement.attributes).map(attr => `${attr.name}="${attr.value}"`)
     });
     
@@ -438,15 +471,23 @@ export class DocxExportService {
     // 处理 base64 图片
     if (src.startsWith('data:image/')) {
       try {
-        console.log('Processing base64 image...');
+        console.log('处理 base64 图片...');
         const base64Data = src.split(',')[1];
         
+        console.log('Base64 数据信息:', {
+          hasData: !!base64Data,
+          dataLength: base64Data ? base64Data.length : 0,
+          dataStart: base64Data ? base64Data.substring(0, 50) + '...' : 'no data'
+        });
+        
         if (!base64Data) {
-          console.warn('Invalid base64 data in image src');
+          console.warn('图片 src 中的 base64 数据无效');
           return null;
         }
         
+        console.log('开始解析 base64 数据...');
         const arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+        console.log('Base64 解析成功，ArrayBuffer 大小:', arrayBuffer.byteLength);
         
         // 获取图片尺寸，使用更合理的默认值
         let width = imgElement.width || imgElement.naturalWidth || 300;
@@ -466,8 +507,9 @@ export class DocxExportService {
           height = maxHeight;
         }
         
-        console.log(`Creating image with dimensions: ${width}x${height}`);
+        console.log(`创建图片，尺寸: ${width}x${height}`);
         
+        console.log('开始创建 ImageRun...');
         const imageRun = new ImageRun({
           data: arrayBuffer,
           transformation: {
@@ -475,15 +517,24 @@ export class DocxExportService {
             height: Math.round(height),
           },
         });
+        console.log('ImageRun 创建成功');
         
-        return new Paragraph({
+        console.log('开始创建 Paragraph...');
+        const paragraph = new Paragraph({
           children: [imageRun],
           spacing: { before: 120, after: 120 }
         });
+        console.log('Paragraph 创建成功，图片处理完成');
+        
+        return paragraph;
       } catch (error) {
-        console.error('Failed to process base64 image:', error, {
+        console.error('处理 base64 图片失败:', error);
+        console.error('错误详情:', {
+          errorName: error.name,
+          errorMessage: error.message,
           srcLength: src.length,
-          srcStart: src.substring(0, 100)
+          srcStart: src.substring(0, 100),
+          stack: error.stack
         });
         return null;
       }
@@ -492,7 +543,7 @@ export class DocxExportService {
     // 处理URL图片 - 尝试重新加载
     if (src.startsWith('http') || src.startsWith('/')) {
       try {
-        console.log('Loading image from URL:', src);
+        console.log('从 URL 加载图片:', src);
         
         // 如果图片不在缓存中，尝试重新加载
         if (!this.imageCache.has(src)) {
@@ -531,7 +582,8 @@ export class DocxExportService {
       }
     }
     
-    console.warn('Unsupported image format or unable to process image:', src);
+    console.warn('不支持的图片格式或无法处理图片:', src);
+    console.warn('图片处理失败，返回 null');
     return null;
   }
 
