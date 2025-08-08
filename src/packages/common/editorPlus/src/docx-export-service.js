@@ -17,6 +17,9 @@ export class DocxExportService {
         left: 1440,
       }
     };
+    
+    // 图片缓存
+    this.imageCache = new Map();
   }
 
   /**
@@ -32,7 +35,21 @@ export class DocxExportService {
 
     try {
       // 动态导入 docx 库
-      const { Document, Paragraph, TextRun, Packer, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = await import('docx');
+      const { 
+        Document, 
+        Paragraph, 
+        TextRun, 
+        Packer, 
+        HeadingLevel, 
+        AlignmentType, 
+        Table, 
+        TableRow, 
+        TableCell, 
+        WidthType, 
+        BorderStyle,
+        ImageRun,
+        Media
+      } = await import('docx');
       
       // 获取编辑器内容
       const content = {
@@ -45,8 +62,24 @@ export class DocxExportService {
         throw new Error('编辑器内容为空');
       }
 
+      // 预处理图片
+      await this.preloadImages(content.html);
+
       // 解析内容为 Word 元素
-      const docElements = this.parseContentToElements(content.html, { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle });
+      const docElements = await this.parseContentToElements(content.html, { 
+        Document, 
+        Paragraph, 
+        TextRun, 
+        HeadingLevel, 
+        AlignmentType, 
+        Table, 
+        TableRow, 
+        TableCell, 
+        WidthType, 
+        BorderStyle,
+        ImageRun,
+        Media
+      });
 
       // 创建 Word 文档
       const doc = new Document({
@@ -83,20 +116,63 @@ export class DocxExportService {
   }
 
   /**
+   * 预加载图片
+   * @param {string} htmlContent - HTML 内容
+   * @returns {Promise<void>}
+   */
+  async preloadImages(htmlContent) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const images = doc.querySelectorAll('img');
+    
+    const loadPromises = Array.from(images).map(async (img) => {
+      const src = img.src;
+      if (src && !this.imageCache.has(src)) {
+        try {
+          const response = await fetch(src);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          this.imageCache.set(src, {
+            data: arrayBuffer,
+            type: blob.type || 'image/png',
+            width: img.width || 200,
+            height: img.height || 200
+          });
+        } catch (error) {
+          console.warn(`Failed to load image: ${src}`, error);
+        }
+      }
+    });
+    
+    await Promise.all(loadPromises);
+  }
+
+  /**
    * 解析 HTML 内容为 Word 元素
    * @param {string} htmlContent - HTML 内容
    * @param {Object} docxClasses - DOCX 类
    * @returns {Array} Word 元素数组
    */
-  parseContentToElements(htmlContent, docxClasses) {
-    const { Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = docxClasses;
+  async parseContentToElements(htmlContent, docxClasses) {
+    const { 
+      Paragraph, 
+      TextRun, 
+      HeadingLevel, 
+      AlignmentType, 
+      Table, 
+      TableRow, 
+      TableCell, 
+      WidthType, 
+      BorderStyle,
+      ImageRun
+    } = docxClasses;
     
     // 创建临时 DOM 元素来解析 HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
     const elements = [];
 
-    const processElement = (element) => {
+    const processElement = async (element) => {
       const tagName = element.tagName ? element.tagName.toLowerCase() : '';
       
       switch (tagName) {
@@ -107,8 +183,9 @@ export class DocxExportService {
         case 'h5':
         case 'h6':
           const level = parseInt(tagName.charAt(1));
+          const headingRuns = await this.extractTextRuns(element, TextRun);
           return new Paragraph({
-            children: [new TextRun({
+            children: headingRuns.length > 0 ? headingRuns : [new TextRun({
               text: element.textContent || '',
               bold: true,
               size: Math.max(16, 32 - (level - 1) * 4),
@@ -119,22 +196,28 @@ export class DocxExportService {
           });
 
         case 'p':
-          const runs = this.extractTextRuns(element, TextRun);
+          const runs = await this.extractTextRuns(element, TextRun);
+          const alignment = this.getAlignment(element, AlignmentType);
           return new Paragraph({
             children: runs.length > 0 ? runs : [new TextRun({ text: '' })],
-            spacing: { after: 120 }
+            spacing: { after: 120 },
+            alignment: alignment
           });
 
+        case 'img':
+          return await this.createImageParagraph(element, { Paragraph, ImageRun });
+
         case 'table':
-          return this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
+          return await this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
 
         case 'ul':
         case 'ol':
-          return this.createList(element, tagName === 'ol', { Paragraph, TextRun });
+          return await this.createList(element, tagName === 'ol', { Paragraph, TextRun });
 
         case 'blockquote':
+          const quoteRuns = await this.extractTextRuns(element, TextRun);
           return new Paragraph({
-            children: [new TextRun({
+            children: quoteRuns.length > 0 ? quoteRuns : [new TextRun({
               text: element.textContent || '',
               italics: true,
               color: '666666'
@@ -163,11 +246,43 @@ export class DocxExportService {
         case 'br':
           return new Paragraph({ children: [new TextRun({ text: '' })] });
 
+        case 'div':
+          // 处理 div 元素，检查是否包含子元素
+          const divChildren = [];
+          for (let child of element.children) {
+            const childElement = await processElement(child);
+            if (childElement) {
+              if (Array.isArray(childElement)) {
+                divChildren.push(...childElement);
+              } else {
+                divChildren.push(childElement);
+              }
+            }
+          }
+          
+          if (divChildren.length > 0) {
+            return divChildren;
+          } else if (element.textContent && element.textContent.trim()) {
+            const divRuns = await this.extractTextRuns(element, TextRun);
+            const alignment = this.getAlignment(element, AlignmentType);
+            return new Paragraph({
+              children: divRuns.length > 0 ? divRuns : [new TextRun({ 
+                text: element.textContent.trim(),
+                font: this.defaultOptions.fontFamily,
+                size: this.defaultOptions.fontSize
+              })],
+              spacing: { after: 120 },
+              alignment: alignment
+            });
+          }
+          return null;
+
         default:
           // 处理其他元素的文本内容
           if (element.textContent && element.textContent.trim()) {
+            const runs = await this.extractTextRuns(element, TextRun);
             return new Paragraph({
-              children: [new TextRun({ 
+              children: runs.length > 0 ? runs : [new TextRun({ 
                 text: element.textContent.trim(),
                 font: this.defaultOptions.fontFamily,
                 size: this.defaultOptions.fontSize
@@ -180,10 +295,10 @@ export class DocxExportService {
     };
 
     // 遍历所有子元素
-    const processAllChildren = (parent) => {
+    const processAllChildren = async (parent) => {
       for (let child of parent.children || []) {
         if (child.nodeType === 1) { // Element node
-          const element = processElement(child);
+          const element = await processElement(child);
           if (element) {
             if (Array.isArray(element)) {
               elements.push(...element);
@@ -195,7 +310,7 @@ export class DocxExportService {
       }
     };
 
-    processAllChildren(doc.body);
+    await processAllChildren(doc.body);
 
     // 如果没有元素，添加一个空段落
     if (elements.length === 0) {
@@ -208,22 +323,81 @@ export class DocxExportService {
   }
 
   /**
+   * 创建图片段落
+   * @param {Element} imgElement - 图片元素
+   * @param {Object} classes - DOCX 类
+   * @returns {Object|null} Paragraph 对象或 null
+   */
+  async createImageParagraph(imgElement, classes) {
+    const { Paragraph, ImageRun } = classes;
+    const src = imgElement.src;
+    
+    if (!src || !this.imageCache.has(src)) {
+      return null;
+    }
+    
+    const imageData = this.imageCache.get(src);
+    const width = Math.min(imgElement.width || imageData.width || 200, 600);
+    const height = Math.min(imgElement.height || imageData.height || 200, 400);
+    
+    try {
+      const imageRun = new ImageRun({
+        data: imageData.data,
+        transformation: {
+          width: width,
+          height: height,
+        },
+      });
+      
+      return new Paragraph({
+        children: [imageRun],
+        spacing: { before: 120, after: 120 }
+      });
+    } catch (error) {
+      console.warn('Failed to create image:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 获取对齐方式
+   * @param {Element} element - DOM 元素
+   * @param {Object} AlignmentType - 对齐类型
+   * @returns {string|undefined} 对齐方式
+   */
+  getAlignment(element, AlignmentType) {
+    const style = element.style;
+    const textAlign = style.textAlign || this.getComputedStyleValue(element, 'text-align');
+    
+    switch (textAlign) {
+      case 'center':
+        return AlignmentType.CENTER;
+      case 'right':
+        return AlignmentType.RIGHT;
+      case 'justify':
+        return AlignmentType.JUSTIFIED;
+      default:
+        return AlignmentType.LEFT;
+    }
+  }
+
+  /**
    * 提取文本运行
    * @param {Element} element - DOM 元素
    * @param {Function} TextRun - TextRun 类
    * @returns {Array} TextRun 数组
    */
-  extractTextRuns(element, TextRun) {
+  async extractTextRuns(element, TextRun) {
     const runs = [];
     
-    const traverse = (node, style = {}) => {
+    const traverse = async (node, style = {}) => {
       if (node.nodeType === 3) { // Text node
         const text = node.textContent;
         if (text && text.trim()) {
           runs.push(new TextRun({
             text: text,
-            font: this.defaultOptions.fontFamily,
-            size: this.defaultOptions.fontSize,
+            font: style.font || this.defaultOptions.fontFamily,
+            size: style.size || this.defaultOptions.fontSize,
             ...style
           }));
         }
@@ -231,23 +405,180 @@ export class DocxExportService {
         const tagName = node.tagName.toLowerCase();
         const newStyle = { ...style };
         
-        // 应用样式
+        // 应用标签样式
         if (tagName === 'strong' || tagName === 'b') newStyle.bold = true;
         if (tagName === 'em' || tagName === 'i') newStyle.italics = true;
         if (tagName === 'u') newStyle.underline = {};
+        if (tagName === 's' || tagName === 'strike' || tagName === 'del') newStyle.strike = true;
         if (tagName === 'code') {
           newStyle.font = 'Courier New';
           newStyle.size = 20;
         }
         
+        // 应用内联样式
+        this.applyInlineStyles(node, newStyle);
+        
         for (let child of node.childNodes) {
-          traverse(child, newStyle);
+          await traverse(child, newStyle);
         }
       }
     };
 
-    traverse(element);
+    await traverse(element);
     return runs;
+  }
+
+  /**
+   * 应用内联样式
+   * @param {Element} element - DOM 元素
+   * @param {Object} style - 样式对象
+   */
+  applyInlineStyles(element, style) {
+    const inlineStyle = element.style;
+    const computedStyle = window.getComputedStyle ? window.getComputedStyle(element) : {};
+    
+    // 字体颜色
+    const color = inlineStyle.color || this.getComputedStyleValue(element, 'color');
+    if (color && color !== 'rgb(0, 0, 0)' && color !== 'black') {
+      const hexColor = this.rgbToHex(color);
+      if (hexColor) {
+        style.color = hexColor.replace('#', '');
+      }
+    }
+    
+    // 背景颜色
+    const backgroundColor = inlineStyle.backgroundColor || this.getComputedStyleValue(element, 'background-color');
+    if (backgroundColor && backgroundColor !== 'rgba(0, 0, 0, 0)' && backgroundColor !== 'transparent') {
+      const hexBgColor = this.rgbToHex(backgroundColor);
+      if (hexBgColor) {
+        style.highlight = hexBgColor.replace('#', '');
+      }
+    }
+    
+    // 字体大小
+    const fontSize = inlineStyle.fontSize || this.getComputedStyleValue(element, 'font-size');
+    if (fontSize) {
+      const size = this.parseSize(fontSize);
+      if (size) {
+        style.size = size;
+      }
+    }
+    
+    // 字体系列
+    const fontFamily = inlineStyle.fontFamily || this.getComputedStyleValue(element, 'font-family');
+    if (fontFamily) {
+      style.font = fontFamily.replace(/['"]/g, '').split(',')[0].trim();
+    }
+    
+    // 字体粗细
+    const fontWeight = inlineStyle.fontWeight || this.getComputedStyleValue(element, 'font-weight');
+    if (fontWeight && (fontWeight === 'bold' || parseInt(fontWeight) >= 700)) {
+      style.bold = true;
+    }
+    
+    // 字体样式
+    const fontStyle = inlineStyle.fontStyle || this.getComputedStyleValue(element, 'font-style');
+    if (fontStyle === 'italic') {
+      style.italics = true;
+    }
+    
+    // 文本装饰
+    const textDecoration = inlineStyle.textDecoration || this.getComputedStyleValue(element, 'text-decoration');
+    if (textDecoration) {
+      if (textDecoration.includes('underline')) {
+        style.underline = {};
+      }
+      if (textDecoration.includes('line-through')) {
+        style.strike = true;
+      }
+    }
+  }
+
+  /**
+   * 获取计算样式值
+   * @param {Element} element - DOM 元素
+   * @param {string} property - CSS 属性
+   * @returns {string} 样式值
+   */
+  getComputedStyleValue(element, property) {
+    try {
+      if (window.getComputedStyle) {
+        return window.getComputedStyle(element).getPropertyValue(property);
+      }
+      return '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  /**
+   * RGB 转 HEX
+   * @param {string} rgb - RGB 颜色值
+   * @returns {string|null} HEX 颜色值
+   */
+  rgbToHex(rgb) {
+    if (!rgb) return null;
+    
+    // 如果已经是 HEX 格式
+    if (rgb.startsWith('#')) {
+      return rgb;
+    }
+    
+    // 处理 rgb() 格式
+    const match = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+    
+    // 处理颜色名称
+    const colorNames = {
+      'red': '#FF0000',
+      'green': '#008000',
+      'blue': '#0000FF',
+      'yellow': '#FFFF00',
+      'orange': '#FFA500',
+      'purple': '#800080',
+      'pink': '#FFC0CB',
+      'brown': '#A52A2A',
+      'gray': '#808080',
+      'grey': '#808080',
+      'white': '#FFFFFF',
+      'black': '#000000'
+    };
+    
+    return colorNames[rgb.toLowerCase()] || null;
+  }
+
+  /**
+   * 解析尺寸
+   * @param {string} sizeStr - 尺寸字符串
+   * @returns {number|null} Word 尺寸单位
+   */
+  parseSize(sizeStr) {
+    if (!sizeStr) return null;
+    
+    const match = sizeStr.match(/(\d+(?:\.\d+)?)(px|pt|em|rem|%)?/);
+    if (match) {
+      const value = parseFloat(match[1]);
+      const unit = match[2] || 'px';
+      
+      switch (unit) {
+        case 'pt':
+          return value * 2; // Word 中 1pt = 2 单位
+        case 'px':
+          return value * 1.5; // 近似转换
+        case 'em':
+        case 'rem':
+          return value * this.defaultOptions.fontSize;
+        default:
+          return value;
+      }
+    }
+    
+    return null;
   }
 
   /**
@@ -256,7 +587,7 @@ export class DocxExportService {
    * @param {Object} classes - DOCX 类
    * @returns {Object} Table 对象
    */
-  createTable(tableElement, classes) {
+  async createTable(tableElement, classes) {
     const { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle } = classes;
     
     try {
@@ -267,9 +598,11 @@ export class DocxExportService {
         
         for (let cell of row.cells) {
           const isHeader = cell.tagName.toLowerCase() === 'th';
+          const cellRuns = await this.extractTextRuns(cell, TextRun);
+          
           cells.push(new TableCell({
             children: [new Paragraph({
-              children: [new TextRun({
+              children: cellRuns.length > 0 ? cellRuns : [new TextRun({
                 text: cell.textContent || '',
                 bold: isHeader,
                 font: this.defaultOptions.fontFamily,
@@ -316,22 +649,31 @@ export class DocxExportService {
    * @param {Object} classes - DOCX 类
    * @returns {Array} Paragraph 数组
    */
-  createList(listElement, isOrdered, classes) {
+  async createList(listElement, isOrdered, classes) {
     const { Paragraph, TextRun } = classes;
     const items = [];
     
     const listItems = listElement.querySelectorAll('li');
-    listItems.forEach((li, index) => {
-      const bullet = isOrdered ? `${index + 1}.` : '•';
-      items.push(new Paragraph({
-        children: [new TextRun({
-          text: `${bullet} ${li.textContent || ''}`,
+    for (let i = 0; i < listItems.length; i++) {
+      const li = listItems[i];
+      const bullet = isOrdered ? `${i + 1}.` : '•';
+      const liRuns = await this.extractTextRuns(li, TextRun);
+      
+      // 为列表项添加项目符号
+      const runs = [
+        new TextRun({
+          text: `${bullet} `,
           font: this.defaultOptions.fontFamily,
           size: this.defaultOptions.fontSize
-        })],
+        }),
+        ...liRuns
+      ];
+      
+      items.push(new Paragraph({
+        children: runs,
         spacing: { after: 60 }
       }));
-    });
+    }
 
     return items;
   }
