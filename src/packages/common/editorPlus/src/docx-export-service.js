@@ -125,26 +125,46 @@ export class DocxExportService {
     const doc = parser.parseFromString(htmlContent, 'text/html');
     const images = doc.querySelectorAll('img');
     
-    const loadPromises = Array.from(images).map(async (img) => {
+    console.log(`Found ${images.length} images to preload`);
+    
+    const loadPromises = Array.from(images).map(async (img, index) => {
       const src = img.src;
-      if (src && !this.imageCache.has(src)) {
+      const dataSrc = img.getAttribute('data-src');
+      const actualSrc = src || dataSrc;
+      
+      console.log(`Image ${index + 1}:`, {
+        src: actualSrc ? actualSrc.substring(0, 50) + '...' : 'no src',
+        isBase64: actualSrc ? actualSrc.startsWith('data:image/') : false,
+        isUrl: actualSrc ? (actualSrc.startsWith('http') || actualSrc.startsWith('/')) : false
+      });
+      
+      // 跳过 base64 图片，它们会在处理时直接解析
+      if (!actualSrc || actualSrc.startsWith('data:image/')) {
+        return;
+      }
+      
+      // 只预加载 URL 图片
+      if ((actualSrc.startsWith('http') || actualSrc.startsWith('/')) && !this.imageCache.has(actualSrc)) {
         try {
-          const response = await fetch(src);
+          console.log(`Loading image from URL: ${actualSrc}`);
+          const response = await fetch(actualSrc);
           const blob = await response.blob();
           const arrayBuffer = await blob.arrayBuffer();
-          this.imageCache.set(src, {
+          this.imageCache.set(actualSrc, {
             data: arrayBuffer,
             type: blob.type || 'image/png',
             width: img.width || 200,
             height: img.height || 200
           });
+          console.log(`Successfully cached image: ${actualSrc}`);
         } catch (error) {
-          console.warn(`Failed to load image: ${src}`, error);
+          console.warn(`Failed to load image: ${actualSrc}`, error);
         }
       }
     });
     
     await Promise.all(loadPromises);
+    console.log(`Image preloading completed. Cache size: ${this.imageCache.size}`);
   }
 
   /**
@@ -364,17 +384,137 @@ export class DocxExportService {
     const { Paragraph, ImageRun } = classes;
     const src = imgElement.src;
     
+    console.log('Processing image:', {
+      src: src ? src.substring(0, 50) + '...' : 'no src',
+      width: imgElement.width,
+      height: imgElement.height,
+      naturalWidth: imgElement.naturalWidth,
+      naturalHeight: imgElement.naturalHeight,
+      attributes: Array.from(imgElement.attributes).map(attr => `${attr.name}="${attr.value}"`)
+    });
+    
+    // 如果没有 src，尝试查找其他可能的图片数据属性
+    if (!src) {
+      // 检查是否有其他可能的图片数据属性
+      const dataSrc = imgElement.getAttribute('data-src');
+      const dataImageContent = imgElement.getAttribute('data-image-content');
+      
+      if (dataSrc) {
+        imgElement.src = dataSrc;
+        return await this.createImageParagraph(imgElement, classes);
+      }
+      
+      if (dataImageContent) {
+        try {
+          let arrayBuffer;
+          if (dataImageContent.startsWith('data:image/')) {
+            const base64Data = dataImageContent.split(',')[1];
+            arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+          } else {
+            arrayBuffer = Uint8Array.from(atob(dataImageContent), c => c.charCodeAt(0)).buffer;
+          }
+          
+          const imageRun = new ImageRun({
+            data: arrayBuffer,
+            transformation: {
+              width: 400,
+              height: 300,
+            },
+          });
+          
+          return new Paragraph({
+            children: [imageRun],
+            spacing: { before: 120, after: 120 }
+          });
+        } catch (error) {
+          console.warn('Failed to process data-image-content:', error);
+        }
+      }
+      
+      console.warn('Image element has no src or valid data attributes');
+      return null;
+    }
+    
     // 处理 base64 图片
-    if (src && src.startsWith('data:image/')) {
+    if (src.startsWith('data:image/')) {
       try {
+        console.log('Processing base64 image...');
         const base64Data = src.split(',')[1];
+        
+        if (!base64Data) {
+          console.warn('Invalid base64 data in image src');
+          return null;
+        }
+        
         const arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
         
-        const width = Math.min(imgElement.width || imgElement.naturalWidth || 200, 600);
-        const height = Math.min(imgElement.height || imgElement.naturalHeight || 200, 400);
+        // 获取图片尺寸，使用更合理的默认值
+        let width = imgElement.width || imgElement.naturalWidth || 300;
+        let height = imgElement.height || imgElement.naturalHeight || 200;
+        
+        // 如果尺寸过大，按比例缩放
+        const maxWidth = 600;
+        const maxHeight = 400;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        if (height > maxHeight) {
+          width = (width * maxHeight) / height;
+          height = maxHeight;
+        }
+        
+        console.log(`Creating image with dimensions: ${width}x${height}`);
         
         const imageRun = new ImageRun({
           data: arrayBuffer,
+          transformation: {
+            width: Math.round(width),
+            height: Math.round(height),
+          },
+        });
+        
+        return new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+      } catch (error) {
+        console.error('Failed to process base64 image:', error, {
+          srcLength: src.length,
+          srcStart: src.substring(0, 100)
+        });
+        return null;
+      }
+    }
+    
+    // 处理URL图片 - 尝试重新加载
+    if (src.startsWith('http') || src.startsWith('/')) {
+      try {
+        console.log('Loading image from URL:', src);
+        
+        // 如果图片不在缓存中，尝试重新加载
+        if (!this.imageCache.has(src)) {
+          const response = await fetch(src);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          
+          // 添加到缓存
+          this.imageCache.set(src, {
+            data: arrayBuffer,
+            type: blob.type || 'image/png',
+            width: imgElement.width || 200,
+            height: imgElement.height || 200
+          });
+        }
+        
+        const imageData = this.imageCache.get(src);
+        const width = Math.min(imgElement.width || imageData.width || 200, 600);
+        const height = Math.min(imgElement.height || imageData.height || 200, 400);
+        
+        const imageRun = new ImageRun({
+          data: imageData.data,
           transformation: {
             width: width,
             height: height,
@@ -386,37 +526,13 @@ export class DocxExportService {
           spacing: { before: 120, after: 120 }
         });
       } catch (error) {
-        console.warn('Failed to process base64 image:', error);
+        console.error('Failed to load image from URL:', error, src);
         return null;
       }
     }
     
-    // 处理缓存的图片
-    if (!src || !this.imageCache.has(src)) {
-      return null;
-    }
-    
-    const imageData = this.imageCache.get(src);
-    const width = Math.min(imgElement.width || imageData.width || 200, 600);
-    const height = Math.min(imgElement.height || imageData.height || 200, 400);
-    
-    try {
-      const imageRun = new ImageRun({
-        data: imageData.data,
-        transformation: {
-          width: width,
-          height: height,
-        },
-      });
-      
-      return new Paragraph({
-        children: [imageRun],
-        spacing: { before: 120, after: 120 }
-      });
-    } catch (error) {
-      console.warn('Failed to create image:', error);
-      return null;
-    }
+    console.warn('Unsupported image format or unable to process image:', src);
+    return null;
   }
 
   /**
