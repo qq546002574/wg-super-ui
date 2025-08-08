@@ -17,6 +17,9 @@ export class DocxExportService {
         left: 1440,
       }
     };
+    
+    // 图片缓存
+    this.imageCache = new Map();
   }
 
   /**
@@ -32,7 +35,21 @@ export class DocxExportService {
 
     try {
       // 动态导入 docx 库
-      const { Document, Paragraph, TextRun, Packer, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = await import('docx');
+      const { 
+        Document, 
+        Paragraph, 
+        TextRun, 
+        Packer, 
+        HeadingLevel, 
+        AlignmentType, 
+        Table, 
+        TableRow, 
+        TableCell, 
+        WidthType, 
+        BorderStyle,
+        ImageRun,
+        Media
+      } = await import('docx');
       
       // 获取编辑器内容
       const content = {
@@ -41,12 +58,34 @@ export class DocxExportService {
         json: editor.editor.getJSON()
       };
 
+      console.log('=== DOCX 导出开始 ===');
+      console.log('HTML 内容长度:', content.html.length);
+      console.log('HTML 内容预览:', content.html.substring(0, 200) + '...');
+
       if (!content.html || !content.html.trim()) {
         throw new Error('编辑器内容为空');
       }
 
+      // 预处理图片
+      await this.preloadImages(content.html);
+
       // 解析内容为 Word 元素
-      const docElements = this.parseContentToElements(content.html, { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle });
+      const docElements = await this.parseContentToElements(content.html, { 
+        Document, 
+        Paragraph, 
+        TextRun, 
+        HeadingLevel, 
+        AlignmentType, 
+        Table, 
+        TableRow, 
+        TableCell, 
+        WidthType, 
+        BorderStyle,
+        ImageRun,
+        Media
+      });
+
+      console.log('解析完成，生成了', docElements.length, '个元素');
 
       // 创建 Word 文档
       const doc = new Document({
@@ -74,6 +113,7 @@ export class DocxExportService {
       const filename = options.filename || `document_${new Date().toISOString().slice(0, 10)}.docx`;
       this.downloadFile(blob, filename);
 
+      console.log('=== DOCX 导出完成 ===');
       return { success: true, message: 'DOCX导出成功' };
 
     } catch (error) {
@@ -83,20 +123,83 @@ export class DocxExportService {
   }
 
   /**
+   * 预加载图片
+   * @param {string} htmlContent - HTML 内容
+   * @returns {Promise<void>}
+   */
+  async preloadImages(htmlContent) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const images = doc.querySelectorAll('img');
+    
+    console.log(`Found ${images.length} images to preload`);
+    
+    const loadPromises = Array.from(images).map(async (img, index) => {
+      const src = img.src;
+      const dataSrc = img.getAttribute('data-src');
+      const actualSrc = src || dataSrc;
+      
+      console.log(`Image ${index + 1}:`, {
+        src: actualSrc ? actualSrc.substring(0, 50) + '...' : 'no src',
+        isBase64: actualSrc ? actualSrc.startsWith('data:image/') : false,
+        isUrl: actualSrc ? (actualSrc.startsWith('http') || actualSrc.startsWith('/')) : false
+      });
+      
+      // 跳过 base64 图片，它们会在处理时直接解析
+      if (!actualSrc || actualSrc.startsWith('data:image/')) {
+        return;
+      }
+      
+      // 只预加载 URL 图片
+      if ((actualSrc.startsWith('http') || actualSrc.startsWith('/')) && !this.imageCache.has(actualSrc)) {
+        try {
+          console.log(`Loading image from URL: ${actualSrc}`);
+          const response = await fetch(actualSrc);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          this.imageCache.set(actualSrc, {
+            data: arrayBuffer,
+            type: blob.type || 'image/png',
+            width: img.width || 200,
+            height: img.height || 200
+          });
+          console.log(`Successfully cached image: ${actualSrc}`);
+        } catch (error) {
+          console.warn(`Failed to load image: ${actualSrc}`, error);
+        }
+      }
+    });
+    
+    await Promise.all(loadPromises);
+    console.log(`Image preloading completed. Cache size: ${this.imageCache.size}`);
+  }
+
+  /**
    * 解析 HTML 内容为 Word 元素
    * @param {string} htmlContent - HTML 内容
    * @param {Object} docxClasses - DOCX 类
    * @returns {Array} Word 元素数组
    */
-  parseContentToElements(htmlContent, docxClasses) {
-    const { Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = docxClasses;
+  async parseContentToElements(htmlContent, docxClasses) {
+    const { 
+      Paragraph, 
+      TextRun, 
+      HeadingLevel, 
+      AlignmentType, 
+      Table, 
+      TableRow, 
+      TableCell, 
+      WidthType, 
+      BorderStyle,
+      ImageRun
+    } = docxClasses;
     
     // 创建临时 DOM 元素来解析 HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
     const elements = [];
 
-    const processElement = (element) => {
+    const processElement = async (element) => {
       const tagName = element.tagName ? element.tagName.toLowerCase() : '';
       
       switch (tagName) {
@@ -107,8 +210,9 @@ export class DocxExportService {
         case 'h5':
         case 'h6':
           const level = parseInt(tagName.charAt(1));
+          const headingRuns = await this.extractTextRuns(element, TextRun);
           return new Paragraph({
-            children: [new TextRun({
+            children: headingRuns.length > 0 ? headingRuns : [new TextRun({
               text: element.textContent || '',
               bold: true,
               size: Math.max(16, 32 - (level - 1) * 4),
@@ -119,22 +223,70 @@ export class DocxExportService {
           });
 
         case 'p':
-          const runs = this.extractTextRuns(element, TextRun);
+          const runs = await this.extractTextRuns(element, TextRun);
+          const alignment = this.getAlignment(element, AlignmentType);
+          // 如果段落为空，创建一个空段落
+          const children = runs.length > 0 ? runs : [new TextRun({ text: '' })];
           return new Paragraph({
-            children: runs.length > 0 ? runs : [new TextRun({ text: '' })],
-            spacing: { after: 120 }
+            children: children,
+            spacing: { after: 120 },
+            alignment: alignment
           });
 
+        case 'img':
+          console.log('=== 发现图片元素 ===');
+          console.log('图片信息:', {
+            src: element.src ? element.src.substring(0, 100) + '...' : 'no src',
+            className: element.className,
+            width: element.width,
+            height: element.height,
+            naturalWidth: element.naturalWidth,
+            naturalHeight: element.naturalHeight,
+            attributes: Array.from(element.attributes).map(attr => `${attr.name}="${attr.value}"`)
+          });
+          
+          // 检查父元素
+          const parent = element.parentElement;
+          if (parent) {
+            console.log('父元素信息:', {
+              tagName: parent.tagName,
+              className: parent.className,
+              isUploadContainer: parent.classList.contains('upload-container'),
+              parentAttributes: Array.from(parent.attributes).map(attr => `${attr.name}="${attr.value}"`)
+            });
+          }
+          
+          const imgResult = await this.createImageParagraph(element, { Paragraph, ImageRun });
+          console.log('图片处理结果:', imgResult ? '成功创建段落' : '失败');
+          return imgResult;
+
         case 'table':
-          return this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
+          return await this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
+
+        case 'span':
+          // 处理 tiptap 的 span 元素（可能包含颜色等样式）
+          const spanRuns = await this.extractTextRuns(element, TextRun);
+          if (spanRuns.length > 0) {
+            return spanRuns; // 返回 TextRun 数组，让父元素处理
+          }
+          return null;
+
+        case 'mark':
+          // 处理 tiptap 的 mark 元素（高亮、颜色等）
+          const markRuns = await this.extractTextRuns(element, TextRun);
+          if (markRuns.length > 0) {
+            return markRuns; // 返回 TextRun 数组，让父元素处理
+          }
+          return null;
 
         case 'ul':
         case 'ol':
-          return this.createList(element, tagName === 'ol', { Paragraph, TextRun });
+          return await this.createList(element, tagName === 'ol', { Paragraph, TextRun });
 
         case 'blockquote':
+          const quoteRuns = await this.extractTextRuns(element, TextRun);
           return new Paragraph({
-            children: [new TextRun({
+            children: quoteRuns.length > 0 ? quoteRuns : [new TextRun({
               text: element.textContent || '',
               italics: true,
               color: '666666'
@@ -163,11 +315,48 @@ export class DocxExportService {
         case 'br':
           return new Paragraph({ children: [new TextRun({ text: '' })] });
 
+        case 'div':
+          // 检查是否是 tiptap 的 uploadContainer
+          if (element.classList.contains('upload-container')) {
+            return await this.createUploadContainerParagraph(element, { Paragraph, ImageRun });
+          }
+          
+          // 处理普通 div 元素，检查是否包含子元素
+          const divChildren = [];
+          for (let child of element.children) {
+            const childElement = await processElement(child);
+            if (childElement) {
+              if (Array.isArray(childElement)) {
+                divChildren.push(...childElement);
+              } else {
+                divChildren.push(childElement);
+              }
+            }
+          }
+          
+          if (divChildren.length > 0) {
+            return divChildren;
+          } else if (element.textContent && element.textContent.trim()) {
+            const divRuns = await this.extractTextRuns(element, TextRun);
+            const alignment = this.getAlignment(element, AlignmentType);
+            return new Paragraph({
+              children: divRuns.length > 0 ? divRuns : [new TextRun({ 
+                text: element.textContent.trim(),
+                font: this.defaultOptions.fontFamily,
+                size: this.defaultOptions.fontSize
+              })],
+              spacing: { after: 120 },
+              alignment: alignment
+            });
+          }
+          return null;
+
         default:
           // 处理其他元素的文本内容
           if (element.textContent && element.textContent.trim()) {
+            const runs = await this.extractTextRuns(element, TextRun);
             return new Paragraph({
-              children: [new TextRun({ 
+              children: runs.length > 0 ? runs : [new TextRun({ 
                 text: element.textContent.trim(),
                 font: this.defaultOptions.fontFamily,
                 size: this.defaultOptions.fontSize
@@ -180,13 +369,22 @@ export class DocxExportService {
     };
 
     // 遍历所有子元素
-    const processAllChildren = (parent) => {
+    const processAllChildren = async (parent) => {
       for (let child of parent.children || []) {
         if (child.nodeType === 1) { // Element node
-          const element = processElement(child);
+          const element = await processElement(child);
           if (element) {
             if (Array.isArray(element)) {
-              elements.push(...element);
+              // 检查数组中是否都是 TextRun，如果是则合并到一个段落中
+              const hasTextRuns = element.every(item => item && typeof item.text !== 'undefined');
+              if (hasTextRuns && element.length > 0) {
+                elements.push(new Paragraph({
+                  children: element,
+                  spacing: { after: 120 }
+                }));
+              } else {
+                elements.push(...element);
+              }
             } else {
               elements.push(element);
             }
@@ -195,7 +393,7 @@ export class DocxExportService {
       }
     };
 
-    processAllChildren(doc.body);
+    await processAllChildren(doc.body);
 
     // 如果没有元素，添加一个空段落
     if (elements.length === 0) {
@@ -208,22 +406,275 @@ export class DocxExportService {
   }
 
   /**
+   * 创建图片段落
+   * @param {Element} imgElement - 图片元素
+   * @param {Object} classes - DOCX 类
+   * @returns {Object|null} Paragraph 对象或 null
+   */
+  async createImageParagraph(imgElement, classes) {
+    const { Paragraph, ImageRun } = classes;
+    const src = imgElement.src;
+    
+    console.log('=== 开始处理图片 ===');
+    console.log('图片详细信息:', {
+      src: src ? src.substring(0, 100) + '...' : 'no src',
+      width: imgElement.width,
+      height: imgElement.height,
+      naturalWidth: imgElement.naturalWidth,
+      naturalHeight: imgElement.naturalHeight,
+      className: imgElement.className,
+      attributes: Array.from(imgElement.attributes).map(attr => `${attr.name}="${attr.value}"`)
+    });
+    
+    // 如果没有 src，尝试查找其他可能的图片数据属性
+    if (!src) {
+      // 检查是否有其他可能的图片数据属性
+      const dataSrc = imgElement.getAttribute('data-src');
+      const dataImageContent = imgElement.getAttribute('data-image-content');
+      
+      if (dataSrc) {
+        imgElement.src = dataSrc;
+        return await this.createImageParagraph(imgElement, classes);
+      }
+      
+      if (dataImageContent) {
+        try {
+          let arrayBuffer;
+          if (dataImageContent.startsWith('data:image/')) {
+            const base64Data = dataImageContent.split(',')[1];
+            arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+          } else {
+            arrayBuffer = Uint8Array.from(atob(dataImageContent), c => c.charCodeAt(0)).buffer;
+          }
+          
+          const imageRun = new ImageRun({
+            data: arrayBuffer,
+            transformation: {
+              width: 400,
+              height: 300,
+            },
+          });
+          
+          return new Paragraph({
+            children: [imageRun],
+            spacing: { before: 120, after: 120 }
+          });
+        } catch (error) {
+          console.warn('Failed to process data-image-content:', error);
+        }
+      }
+      
+      console.warn('Image element has no src or valid data attributes');
+      return null;
+    }
+    
+    // 处理 base64 图片
+    if (src.startsWith('data:image/')) {
+      try {
+        console.log('处理 base64 图片...');
+        const base64Data = src.split(',')[1];
+        
+        console.log('Base64 数据信息:', {
+          hasData: !!base64Data,
+          dataLength: base64Data ? base64Data.length : 0,
+          dataStart: base64Data ? base64Data.substring(0, 50) + '...' : 'no data'
+        });
+        
+        if (!base64Data) {
+          console.warn('图片 src 中的 base64 数据无效');
+          return null;
+        }
+        
+        console.log('开始解析 base64 数据...');
+        const arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+        console.log('Base64 解析成功，ArrayBuffer 大小:', arrayBuffer.byteLength);
+        
+        // 获取图片尺寸，使用更合理的默认值
+        let width = imgElement.width || imgElement.naturalWidth || 300;
+        let height = imgElement.height || imgElement.naturalHeight || 200;
+        
+        // 如果尺寸过大，按比例缩放
+        const maxWidth = 600;
+        const maxHeight = 400;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        if (height > maxHeight) {
+          width = (width * maxHeight) / height;
+          height = maxHeight;
+        }
+        
+        console.log(`创建图片，尺寸: ${width}x${height}`);
+        
+        console.log('开始创建 ImageRun...');
+        const imageRun = new ImageRun({
+          data: arrayBuffer,
+          transformation: {
+            width: Math.round(width),
+            height: Math.round(height),
+          },
+        });
+        console.log('ImageRun 创建成功');
+        
+        console.log('开始创建 Paragraph...');
+        const paragraph = new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+        console.log('Paragraph 创建成功，图片处理完成');
+        
+        return paragraph;
+      } catch (error) {
+        console.error('处理 base64 图片失败:', error);
+        console.error('错误详情:', {
+          errorName: error.name,
+          errorMessage: error.message,
+          srcLength: src.length,
+          srcStart: src.substring(0, 100),
+          stack: error.stack
+        });
+        return null;
+      }
+    }
+    
+    // 处理URL图片 - 尝试重新加载
+    if (src.startsWith('http') || src.startsWith('/')) {
+      try {
+        console.log('从 URL 加载图片:', src);
+        
+        // 如果图片不在缓存中，尝试重新加载
+        if (!this.imageCache.has(src)) {
+          const response = await fetch(src);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          
+          // 添加到缓存
+          this.imageCache.set(src, {
+            data: arrayBuffer,
+            type: blob.type || 'image/png',
+            width: imgElement.width || 200,
+            height: imgElement.height || 200
+          });
+        }
+        
+        const imageData = this.imageCache.get(src);
+        const width = Math.min(imgElement.width || imageData.width || 200, 600);
+        const height = Math.min(imgElement.height || imageData.height || 200, 400);
+        
+        const imageRun = new ImageRun({
+          data: imageData.data,
+          transformation: {
+            width: width,
+            height: height,
+          },
+        });
+        
+        return new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+      } catch (error) {
+        console.error('Failed to load image from URL:', error, src);
+        return null;
+      }
+    }
+    
+    console.warn('不支持的图片格式或无法处理图片:', src);
+    console.warn('图片处理失败，返回 null');
+    return null;
+  }
+
+  /**
+   * 创建 uploadContainer 段落（tiptap 自定义节点）
+   * @param {Element} containerElement - uploadContainer 元素
+   * @param {Object} classes - DOCX 类
+   * @returns {Object|null} Paragraph 对象或 null
+   */
+  async createUploadContainerParagraph(containerElement, classes) {
+    const { Paragraph, ImageRun } = classes;
+    
+    // 查找容器内的图片
+    const imgElement = containerElement.querySelector('img');
+    if (imgElement) {
+      return await this.createImageParagraph(imgElement, classes);
+    }
+    
+    // 如果没有找到图片，检查 data 属性
+    const imageContent = containerElement.getAttribute('data-image-content');
+    if (imageContent) {
+      try {
+        let arrayBuffer;
+        if (imageContent.startsWith('data:image/')) {
+          const base64Data = imageContent.split(',')[1];
+          arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+        } else {
+          // 假设是 base64 数据
+          arrayBuffer = Uint8Array.from(atob(imageContent), c => c.charCodeAt(0)).buffer;
+        }
+        
+        const imageRun = new ImageRun({
+          data: arrayBuffer,
+          transformation: {
+            width: 400,
+            height: 300,
+          },
+        });
+        
+        return new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+      } catch (error) {
+        console.warn('Failed to process uploadContainer image:', error);
+        return null;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * 获取对齐方式
+   * @param {Element} element - DOM 元素
+   * @param {Object} AlignmentType - 对齐类型
+   * @returns {string|undefined} 对齐方式
+   */
+  getAlignment(element, AlignmentType) {
+    const style = element.style;
+    const textAlign = style.textAlign || this.getComputedStyleValue(element, 'text-align');
+    
+    switch (textAlign) {
+      case 'center':
+        return AlignmentType.CENTER;
+      case 'right':
+        return AlignmentType.RIGHT;
+      case 'justify':
+        return AlignmentType.JUSTIFIED;
+      default:
+        return AlignmentType.LEFT;
+    }
+  }
+
+  /**
    * 提取文本运行
    * @param {Element} element - DOM 元素
    * @param {Function} TextRun - TextRun 类
    * @returns {Array} TextRun 数组
    */
-  extractTextRuns(element, TextRun) {
+  async extractTextRuns(element, TextRun) {
     const runs = [];
     
-    const traverse = (node, style = {}) => {
+    const traverse = async (node, style = {}) => {
       if (node.nodeType === 3) { // Text node
         const text = node.textContent;
-        if (text && text.trim()) {
+        if (text) { // 保留空白字符，让Word处理
           runs.push(new TextRun({
             text: text,
-            font: this.defaultOptions.fontFamily,
-            size: this.defaultOptions.fontSize,
+            font: style.font || this.defaultOptions.fontFamily,
+            size: style.size || this.defaultOptions.fontSize,
             ...style
           }));
         }
@@ -231,23 +682,207 @@ export class DocxExportService {
         const tagName = node.tagName.toLowerCase();
         const newStyle = { ...style };
         
-        // 应用样式
+        // 应用标签样式
         if (tagName === 'strong' || tagName === 'b') newStyle.bold = true;
         if (tagName === 'em' || tagName === 'i') newStyle.italics = true;
         if (tagName === 'u') newStyle.underline = {};
+        if (tagName === 's' || tagName === 'strike' || tagName === 'del') newStyle.strike = true;
+        if (tagName === 'sub') newStyle.subScript = true;
+        if (tagName === 'sup') newStyle.superScript = true;
         if (tagName === 'code') {
           newStyle.font = 'Courier New';
           newStyle.size = 20;
         }
         
+        // 特殊处理 span 和 mark 元素的样式
+        if (tagName === 'span' || tagName === 'mark') {
+          this.applyInlineStyles(node, newStyle);
+        }
+        
+        // 应用内联样式
+        this.applyInlineStyles(node, newStyle);
+        
+        // 处理 br 标签
+        if (tagName === 'br') {
+          runs.push(new TextRun({
+            text: '\n',
+            font: style.font || this.defaultOptions.fontFamily,
+            size: style.size || this.defaultOptions.fontSize,
+            ...style
+          }));
+          return;
+        }
+        
         for (let child of node.childNodes) {
-          traverse(child, newStyle);
+          await traverse(child, newStyle);
         }
       }
     };
 
-    traverse(element);
+    await traverse(element);
     return runs;
+  }
+
+  /**
+   * 应用内联样式
+   * @param {Element} element - DOM 元素
+   * @param {Object} style - 样式对象
+   */
+  applyInlineStyles(element, style) {
+    const inlineStyle = element.style;
+    const computedStyle = window.getComputedStyle ? window.getComputedStyle(element) : {};
+    
+    // 处理 tiptap 的 data-color 属性
+    const dataColor = element.getAttribute('data-color');
+    if (dataColor) {
+      const hexColor = this.rgbToHex(dataColor);
+      if (hexColor) {
+        style.color = hexColor.replace('#', '');
+      }
+    }
+    
+    // 字体颜色
+    const color = inlineStyle.color || this.getComputedStyleValue(element, 'color');
+    if (color && color !== 'rgb(0, 0, 0)' && color !== 'black' && color !== 'rgba(0, 0, 0, 0)') {
+      const hexColor = this.rgbToHex(color);
+      if (hexColor) {
+        style.color = hexColor.replace('#', '');
+      }
+    }
+    
+    // 背景颜色
+    const backgroundColor = inlineStyle.backgroundColor || this.getComputedStyleValue(element, 'background-color');
+    if (backgroundColor && backgroundColor !== 'rgba(0, 0, 0, 0)' && backgroundColor !== 'transparent') {
+      const hexBgColor = this.rgbToHex(backgroundColor);
+      if (hexBgColor) {
+        style.highlight = hexBgColor.replace('#', '');
+      }
+    }
+    
+    // 字体大小
+    const fontSize = inlineStyle.fontSize || this.getComputedStyleValue(element, 'font-size');
+    if (fontSize) {
+      const size = this.parseSize(fontSize);
+      if (size) {
+        style.size = size;
+      }
+    }
+    
+    // 字体系列
+    const fontFamily = inlineStyle.fontFamily || this.getComputedStyleValue(element, 'font-family');
+    if (fontFamily) {
+      style.font = fontFamily.replace(/['"]/g, '').split(',')[0].trim();
+    }
+    
+    // 字体粗细
+    const fontWeight = inlineStyle.fontWeight || this.getComputedStyleValue(element, 'font-weight');
+    if (fontWeight && (fontWeight === 'bold' || parseInt(fontWeight) >= 700)) {
+      style.bold = true;
+    }
+    
+    // 字体样式
+    const fontStyle = inlineStyle.fontStyle || this.getComputedStyleValue(element, 'font-style');
+    if (fontStyle === 'italic') {
+      style.italics = true;
+    }
+    
+    // 文本装饰
+    const textDecoration = inlineStyle.textDecoration || this.getComputedStyleValue(element, 'text-decoration');
+    if (textDecoration) {
+      if (textDecoration.includes('underline')) {
+        style.underline = {};
+      }
+      if (textDecoration.includes('line-through')) {
+        style.strike = true;
+      }
+    }
+  }
+
+  /**
+   * 获取计算样式值
+   * @param {Element} element - DOM 元素
+   * @param {string} property - CSS 属性
+   * @returns {string} 样式值
+   */
+  getComputedStyleValue(element, property) {
+    try {
+      if (window.getComputedStyle) {
+        return window.getComputedStyle(element).getPropertyValue(property);
+      }
+      return '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  /**
+   * RGB 转 HEX
+   * @param {string} rgb - RGB 颜色值
+   * @returns {string|null} HEX 颜色值
+   */
+  rgbToHex(rgb) {
+    if (!rgb) return null;
+    
+    // 如果已经是 HEX 格式
+    if (rgb.startsWith('#')) {
+      return rgb;
+    }
+    
+    // 处理 rgb() 格式
+    const match = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+    
+    // 处理颜色名称
+    const colorNames = {
+      'red': '#FF0000',
+      'green': '#008000',
+      'blue': '#0000FF',
+      'yellow': '#FFFF00',
+      'orange': '#FFA500',
+      'purple': '#800080',
+      'pink': '#FFC0CB',
+      'brown': '#A52A2A',
+      'gray': '#808080',
+      'grey': '#808080',
+      'white': '#FFFFFF',
+      'black': '#000000'
+    };
+    
+    return colorNames[rgb.toLowerCase()] || null;
+  }
+
+  /**
+   * 解析尺寸
+   * @param {string} sizeStr - 尺寸字符串
+   * @returns {number|null} Word 尺寸单位
+   */
+  parseSize(sizeStr) {
+    if (!sizeStr) return null;
+    
+    const match = sizeStr.match(/(\d+(?:\.\d+)?)(px|pt|em|rem|%)?/);
+    if (match) {
+      const value = parseFloat(match[1]);
+      const unit = match[2] || 'px';
+      
+      switch (unit) {
+        case 'pt':
+          return value * 2; // Word 中 1pt = 2 单位
+        case 'px':
+          return value * 1.5; // 近似转换
+        case 'em':
+        case 'rem':
+          return value * this.defaultOptions.fontSize;
+        default:
+          return value;
+      }
+    }
+    
+    return null;
   }
 
   /**
@@ -256,7 +891,7 @@ export class DocxExportService {
    * @param {Object} classes - DOCX 类
    * @returns {Object} Table 对象
    */
-  createTable(tableElement, classes) {
+  async createTable(tableElement, classes) {
     const { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle } = classes;
     
     try {
@@ -267,9 +902,11 @@ export class DocxExportService {
         
         for (let cell of row.cells) {
           const isHeader = cell.tagName.toLowerCase() === 'th';
+          const cellRuns = await this.extractTextRuns(cell, TextRun);
+          
           cells.push(new TableCell({
             children: [new Paragraph({
-              children: [new TextRun({
+              children: cellRuns.length > 0 ? cellRuns : [new TextRun({
                 text: cell.textContent || '',
                 bold: isHeader,
                 font: this.defaultOptions.fontFamily,
@@ -316,22 +953,31 @@ export class DocxExportService {
    * @param {Object} classes - DOCX 类
    * @returns {Array} Paragraph 数组
    */
-  createList(listElement, isOrdered, classes) {
+  async createList(listElement, isOrdered, classes) {
     const { Paragraph, TextRun } = classes;
     const items = [];
     
     const listItems = listElement.querySelectorAll('li');
-    listItems.forEach((li, index) => {
-      const bullet = isOrdered ? `${index + 1}.` : '•';
-      items.push(new Paragraph({
-        children: [new TextRun({
-          text: `${bullet} ${li.textContent || ''}`,
+    for (let i = 0; i < listItems.length; i++) {
+      const li = listItems[i];
+      const bullet = isOrdered ? `${i + 1}.` : '•';
+      const liRuns = await this.extractTextRuns(li, TextRun);
+      
+      // 为列表项添加项目符号
+      const runs = [
+        new TextRun({
+          text: `${bullet} `,
           font: this.defaultOptions.fontFamily,
           size: this.defaultOptions.fontSize
-        })],
+        }),
+        ...liRuns
+      ];
+      
+      items.push(new Paragraph({
+        children: runs,
         spacing: { after: 60 }
       }));
-    });
+    }
 
     return items;
   }
