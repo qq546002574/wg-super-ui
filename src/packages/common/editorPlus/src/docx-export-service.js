@@ -198,8 +198,10 @@ export class DocxExportService {
         case 'p':
           const runs = await this.extractTextRuns(element, TextRun);
           const alignment = this.getAlignment(element, AlignmentType);
+          // 如果段落为空，创建一个空段落
+          const children = runs.length > 0 ? runs : [new TextRun({ text: '' })];
           return new Paragraph({
-            children: runs.length > 0 ? runs : [new TextRun({ text: '' })],
+            children: children,
             spacing: { after: 120 },
             alignment: alignment
           });
@@ -209,6 +211,22 @@ export class DocxExportService {
 
         case 'table':
           return await this.createTable(element, { Table, TableRow, TableCell, Paragraph, TextRun, WidthType, BorderStyle });
+
+        case 'span':
+          // 处理 tiptap 的 span 元素（可能包含颜色等样式）
+          const spanRuns = await this.extractTextRuns(element, TextRun);
+          if (spanRuns.length > 0) {
+            return spanRuns; // 返回 TextRun 数组，让父元素处理
+          }
+          return null;
+
+        case 'mark':
+          // 处理 tiptap 的 mark 元素（高亮、颜色等）
+          const markRuns = await this.extractTextRuns(element, TextRun);
+          if (markRuns.length > 0) {
+            return markRuns; // 返回 TextRun 数组，让父元素处理
+          }
+          return null;
 
         case 'ul':
         case 'ol':
@@ -247,7 +265,12 @@ export class DocxExportService {
           return new Paragraph({ children: [new TextRun({ text: '' })] });
 
         case 'div':
-          // 处理 div 元素，检查是否包含子元素
+          // 检查是否是 tiptap 的 uploadContainer
+          if (element.classList.contains('upload-container')) {
+            return await this.createUploadContainerParagraph(element, { Paragraph, ImageRun });
+          }
+          
+          // 处理普通 div 元素，检查是否包含子元素
           const divChildren = [];
           for (let child of element.children) {
             const childElement = await processElement(child);
@@ -301,7 +324,16 @@ export class DocxExportService {
           const element = await processElement(child);
           if (element) {
             if (Array.isArray(element)) {
-              elements.push(...element);
+              // 检查数组中是否都是 TextRun，如果是则合并到一个段落中
+              const hasTextRuns = element.every(item => item && typeof item.text !== 'undefined');
+              if (hasTextRuns && element.length > 0) {
+                elements.push(new Paragraph({
+                  children: element,
+                  spacing: { after: 120 }
+                }));
+              } else {
+                elements.push(...element);
+              }
             } else {
               elements.push(element);
             }
@@ -332,6 +364,34 @@ export class DocxExportService {
     const { Paragraph, ImageRun } = classes;
     const src = imgElement.src;
     
+    // 处理 base64 图片
+    if (src && src.startsWith('data:image/')) {
+      try {
+        const base64Data = src.split(',')[1];
+        const arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+        
+        const width = Math.min(imgElement.width || imgElement.naturalWidth || 200, 600);
+        const height = Math.min(imgElement.height || imgElement.naturalHeight || 200, 400);
+        
+        const imageRun = new ImageRun({
+          data: arrayBuffer,
+          transformation: {
+            width: width,
+            height: height,
+          },
+        });
+        
+        return new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+      } catch (error) {
+        console.warn('Failed to process base64 image:', error);
+        return null;
+      }
+    }
+    
+    // 处理缓存的图片
     if (!src || !this.imageCache.has(src)) {
       return null;
     }
@@ -357,6 +417,55 @@ export class DocxExportService {
       console.warn('Failed to create image:', error);
       return null;
     }
+  }
+
+  /**
+   * 创建 uploadContainer 段落（tiptap 自定义节点）
+   * @param {Element} containerElement - uploadContainer 元素
+   * @param {Object} classes - DOCX 类
+   * @returns {Object|null} Paragraph 对象或 null
+   */
+  async createUploadContainerParagraph(containerElement, classes) {
+    const { Paragraph, ImageRun } = classes;
+    
+    // 查找容器内的图片
+    const imgElement = containerElement.querySelector('img');
+    if (imgElement) {
+      return await this.createImageParagraph(imgElement, classes);
+    }
+    
+    // 如果没有找到图片，检查 data 属性
+    const imageContent = containerElement.getAttribute('data-image-content');
+    if (imageContent) {
+      try {
+        let arrayBuffer;
+        if (imageContent.startsWith('data:image/')) {
+          const base64Data = imageContent.split(',')[1];
+          arrayBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)).buffer;
+        } else {
+          // 假设是 base64 数据
+          arrayBuffer = Uint8Array.from(atob(imageContent), c => c.charCodeAt(0)).buffer;
+        }
+        
+        const imageRun = new ImageRun({
+          data: arrayBuffer,
+          transformation: {
+            width: 400,
+            height: 300,
+          },
+        });
+        
+        return new Paragraph({
+          children: [imageRun],
+          spacing: { before: 120, after: 120 }
+        });
+      } catch (error) {
+        console.warn('Failed to process uploadContainer image:', error);
+        return null;
+      }
+    }
+    
+    return null;
   }
 
   /**
@@ -393,7 +502,7 @@ export class DocxExportService {
     const traverse = async (node, style = {}) => {
       if (node.nodeType === 3) { // Text node
         const text = node.textContent;
-        if (text && text.trim()) {
+        if (text) { // 保留空白字符，让Word处理
           runs.push(new TextRun({
             text: text,
             font: style.font || this.defaultOptions.fontFamily,
@@ -410,13 +519,31 @@ export class DocxExportService {
         if (tagName === 'em' || tagName === 'i') newStyle.italics = true;
         if (tagName === 'u') newStyle.underline = {};
         if (tagName === 's' || tagName === 'strike' || tagName === 'del') newStyle.strike = true;
+        if (tagName === 'sub') newStyle.subScript = true;
+        if (tagName === 'sup') newStyle.superScript = true;
         if (tagName === 'code') {
           newStyle.font = 'Courier New';
           newStyle.size = 20;
         }
         
+        // 特殊处理 span 和 mark 元素的样式
+        if (tagName === 'span' || tagName === 'mark') {
+          this.applyInlineStyles(node, newStyle);
+        }
+        
         // 应用内联样式
         this.applyInlineStyles(node, newStyle);
+        
+        // 处理 br 标签
+        if (tagName === 'br') {
+          runs.push(new TextRun({
+            text: '\n',
+            font: style.font || this.defaultOptions.fontFamily,
+            size: style.size || this.defaultOptions.fontSize,
+            ...style
+          }));
+          return;
+        }
         
         for (let child of node.childNodes) {
           await traverse(child, newStyle);
@@ -437,9 +564,18 @@ export class DocxExportService {
     const inlineStyle = element.style;
     const computedStyle = window.getComputedStyle ? window.getComputedStyle(element) : {};
     
+    // 处理 tiptap 的 data-color 属性
+    const dataColor = element.getAttribute('data-color');
+    if (dataColor) {
+      const hexColor = this.rgbToHex(dataColor);
+      if (hexColor) {
+        style.color = hexColor.replace('#', '');
+      }
+    }
+    
     // 字体颜色
     const color = inlineStyle.color || this.getComputedStyleValue(element, 'color');
-    if (color && color !== 'rgb(0, 0, 0)' && color !== 'black') {
+    if (color && color !== 'rgb(0, 0, 0)' && color !== 'black' && color !== 'rgba(0, 0, 0, 0)') {
       const hexColor = this.rgbToHex(color);
       if (hexColor) {
         style.color = hexColor.replace('#', '');
